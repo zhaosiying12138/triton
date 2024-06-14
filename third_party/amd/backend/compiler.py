@@ -78,6 +78,52 @@ class HIPOptions:
         key = '_'.join([f'{name}-{val}' for name, val in self.__dict__.items()])
         return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
+@functools.lru_cache(None)
+def file_hash(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+@dataclass(frozen=True)
+class CUDAOptions:
+    num_warps: int = 4
+    num_ctas: int = 1
+    num_stages: int = 3
+    cluster_dims: tuple = (1, 1, 1)
+    ptx_version: int = None
+    enable_fp_fusion: bool = True
+    allow_fp8e4nv: bool = False
+    max_num_imprecise_acc_default: bool = None
+    extern_libs: dict = None
+    debug: bool = False
+
+
+    waves_per_eu: int = 1
+    extern_libs: dict = None
+    arch: str = None
+    enable_fp_fusion: bool = True
+    capability: int = None
+    # TODO:
+    matrix_core_version: int = -1
+    matrix_inst_shape: int = 0
+    max_num_imprecise_acc_default: int = 0
+
+    def __post_init__(self):
+        default_libdir = Path(__file__).parent / 'lib'
+        extern_libs = dict() if self.extern_libs is None else dict(self.extern_libs)
+        if not extern_libs.get('libdevice', None):
+            extern_libs['libdevice'] = os.getenv("TRITON_LIBDEVICE_PATH", str(default_libdir / 'libdevice.10.bc'))
+        object.__setattr__(self, 'extern_libs', tuple(extern_libs.items()))
+        warp_size = 64
+        object.__setattr__(self, 'warp_size', warp_size)
+        object.__setattr__(self, 'matrix_core_version', 10)
+        assert self.num_warps > 0 and (self.num_warps & (self.num_warps - 1)) == 0, \
+               "num_warps must be a power of 2"
+
+    def hash(self):
+        # hash_dict = dict(self.__dict__)
+        # hash_dict["extern_libs"] = tuple((k, file_hash(v)) for k, v in sorted(hash_dict["extern_libs"]))
+        # key = "_".join([f"{name}-{val}" for name, val in sorted(hash_dict.items())])
+        return hashlib.sha256("zhaosiying12138".encode("utf-8")).hexdigest()
 
 class HIPBackend(BaseBackend):
 
@@ -87,26 +133,22 @@ class HIPBackend(BaseBackend):
 
     def __init__(self, target: tuple) -> None:
         super().__init__(target)
-        assert isinstance(target, tuple) and len(target) == 3
-        assert isinstance(target[1], str)
+        self.capability = target[1]
+        assert isinstance(self.capability, int)
 
     def parse_options(self, opts) -> Any:
-        args = {'arch': self.target[1]}
-        args.update({k: opts[k] for k in HIPOptions.__dataclass_fields__.keys() if k in opts})
-        return HIPOptions(**args)
+        args = {k: opts[k] for k in CUDAOptions.__dataclass_fields__.keys() if k in opts}
+        args["allow_fp8e4nv"] = self.capability >= 89
+        args["max_num_imprecise_acc_default"] = 2**30 if self.capability == 90 else 0
+        return CUDAOptions(**args)
 
     def load_dialects(self, ctx):
         amd.load_dialects(ctx)
 
     @staticmethod
     def path_to_rocm_lld():
-        lld = Path("/opt/rocm/llvm/bin/ld.lld")
-        if lld.is_file():
-            return lld
-        lld = Path("/usr/bin/ld.lld")
-        if lld.is_file():
-            return lld
-        raise Exception("ROCm linker /opt/rocm/llvm/bin/ld.lld not found")
+        lld = Path("/usr/bin/ld")
+        return lld;
 
     @staticmethod
     def make_ttir(mod, metadata, opt):
@@ -121,6 +163,7 @@ class HIPBackend(BaseBackend):
         passes.common.add_licm(pm)
         passes.common.add_symbol_dce(pm)
         pm.run(mod)
+        print("[ZSY_DBG] make_ttir\n", mod)
         return mod
 
     @staticmethod
@@ -150,6 +193,7 @@ class HIPBackend(BaseBackend):
         passes.common.add_cse(pm)
         passes.common.add_symbol_dce(pm)
         pm.run(mod)
+        print("[ZSY_DBG] make_ttgir\n", mod)
         return mod
 
     @staticmethod
@@ -196,6 +240,7 @@ class HIPBackend(BaseBackend):
         # Get some metadata
         metadata["shared"] = src.get_int_attr("triton_gpu.shared")
         ret = str(llvm_mod)
+        print("[ZSY_DBG] make_llir\n", llvm_mod)
         return ret
 
     @staticmethod
@@ -229,7 +274,7 @@ class HIPBackend(BaseBackend):
         stages["llir"] = lambda src, metadata: self.make_llir(src, metadata, options, 90)
         # TODO: first amdgcn, then hsaco
         # stages["amdgcn"] = lambda src, metadata: self.make_amdgcn(src, metadata, options)
-        stages["hsaco"] = lambda src, metadata: self.make_hsaco(src, metadata, options)
+        # stages["hsaco"] = lambda src, metadata: self.make_hsaco(src, metadata, options)
 
     @functools.lru_cache()
     def hash(self):
