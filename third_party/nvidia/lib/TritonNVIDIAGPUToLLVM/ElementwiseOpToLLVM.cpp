@@ -544,12 +544,14 @@ struct FpToFpOpConversion
         srcTy.getTypeID(), dstTy.getTypeID(),
         roundingMode.value_or(undefRounding)};
     if (srcMap.count(key) == 0) {
+
       llvm::errs() << "Unsupported conversion from " << srcTy << " to "
                    << dstTy;
       if (roundingMode.has_value())
         llvm::errs() << " with rounding mode "
                      << stringifyRoundingMode(roundingMode.value());
       llvm::errs() << "\n";
+      assert(0);
       llvm::report_fatal_error("Unsupported rounding mode for conversion.");
     }
     if (computeCapability < 89 &&
@@ -573,6 +575,7 @@ struct FpToFpOpConversion
                                    Location loc) const {
     auto srcElementType = getElementType(op.getSrc());
     auto dstElementType = getElementType(op.getResult());
+    op.dump();
     auto roundingMode = op.getRounding();
 
     if (dstElementType.isFloat8E5M2() || dstElementType.isFloat8E4M3FNUZ()) {
@@ -599,6 +602,15 @@ struct FpToFpOpConversion
       return outVals;
     }
 
+    if (srcElementType.isF16() && dstElementType.isF32()) {
+      SmallVector<Value> outVals;
+      for (Value v : operands[0]) {
+        outVals.push_back(
+            convertFp16ToFp32(loc, rewriter, v));
+      }
+      return outVals;
+    }
+
     if (srcElementType.isF32() && dstElementType.isBF16()) {
       assert(roundingMode.has_value() &&
              "rounding mode must be specified for fp32->bf16 conversion");
@@ -617,7 +629,8 @@ struct FpToFpOpConversion
          roundingMode.value() == RoundingMode::RTZ);
     bool isDstFP32 = dstElementType.isF32();
     Type srcType = useFP16IntermediateSrc ? f16_ty : srcElementType;
-    Type dstType = isDstFP32 ? f16_ty : dstElementType;
+    // Type dstType = isDstFP32 ? f16_ty : dstElementType;
+    Type dstType = isDstFP32 ? f32_ty : dstElementType;
     auto [cvtFunc, numElements] =
         getConversionFunc(srcType, dstType, roundingMode);
     SmallVector<Value> inVals;

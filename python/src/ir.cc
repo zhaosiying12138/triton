@@ -871,11 +871,13 @@ void init_triton_ir(py::module &&m) {
       .def("create_fp_to_fp",
            [](TritonOpBuilder &self, Value &src, Type &dstType,
               std::optional<RoundingMode> roundingMode) -> Value {
+                llvm::outs()<<"[ZSY] that is good\n";
              if (roundingMode.has_value())
                return self.create<FpToFpOp>(
                    dstType, src,
                    RoundingModeAttr::get(self.getBuilder().getContext(),
                                          roundingMode.value()));
+            else if(src.getType() == dstType) { llvm::outs()<<"[ZSY] that is good\n"; return src; }
              else
                return self.create<FpToFpOp>(dstType, src);
            })

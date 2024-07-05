@@ -335,12 +335,12 @@ class CMakeBuild(build_ext):
 
         if check_env_flag("TRITON_BUILD_WITH_CLANG_LLD"):
             cmake_args += [
-                "-DCMAKE_C_COMPILER=clang",
-                "-DCMAKE_CXX_COMPILER=clang++",
-                "-DCMAKE_LINKER=lld",
-                "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld",
-                "-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=lld",
-                "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld",
+                "-DCMAKE_C_COMPILER=gcc",
+                "-DCMAKE_CXX_COMPILER=g++",
+                "-DCMAKE_LINKER=mold",
+                "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold",
+                "-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=mold",
+                "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=mold",
             ]
 
         # Note that asan doesn't work with binaries that use the GPU, so this is

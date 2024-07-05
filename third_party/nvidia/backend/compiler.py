@@ -96,7 +96,8 @@ class CUDABackend(BaseBackend):
 
     def __init__(self, target: tuple) -> None:
         super().__init__(target)
-        self.capability = target[1]
+        # self.capability = target[1]
+        self.capability = 60
         assert isinstance(self.capability, int)
 
     def parse_options(self, opts) -> Any:
@@ -121,6 +122,8 @@ class CUDABackend(BaseBackend):
         passes.common.add_licm(pm)
         passes.common.add_symbol_dce(pm)
         pm.run(mod)
+        print("[ZSY Debug] ttir:")
+        print(mod)
         return mod
 
     @staticmethod
@@ -159,6 +162,8 @@ class CUDABackend(BaseBackend):
         passes.common.add_canonicalizer(pm)
         pm.run(mod)
         metadata["cluster_dims"] = (cluster_info.clusterDimX, cluster_info.clusterDimY, cluster_info.clusterDimZ)
+        print("[ZSY Debug] ttgir:")
+        print(mod)
         return mod
 
     @staticmethod
@@ -193,6 +198,8 @@ class CUDABackend(BaseBackend):
             for name, path in options.extern_libs:
                 llvm.link_extern_lib(llvm_mod, path)
         llvm.optimize_module(llvm_mod, llvm.OPTIMIZE_O3)
+        print("[ZSY Debug] llir:")
+        print(llvm_mod)
         # Set kernel attributes
         # kernels = [fn for fn in llvm_mod.get_functions() if fn.has_public_visibility() and not fn.is_declaration()]
         # assert len(kernels) == 1
@@ -208,6 +215,7 @@ class CUDABackend(BaseBackend):
 
     @staticmethod
     def make_ptx(src, metadata, opt, capability):
+        capability = 86
         proc = 'sm_90a' if capability == 90 else f'sm_{capability}'
         ret = llvm.translate_to_asm(src, 'nvptx64-nvidia-cuda', proc, '', ['nvptx-short-ptr'], opt.enable_fp_fusion,
                                     False)
@@ -224,10 +232,13 @@ class CUDABackend(BaseBackend):
         ret = re.sub(r'\.version \d+\.\d+', f'.version {ptx_version}', ret, flags=re.MULTILINE)
         # Remove the debug flag that prevents ptxas from optimizing the code
         ret = re.sub(r",\s*debug|debug,\s*", "", ret)
+        print("[ZSY Debug] ptx:")
+        print(ret)
         return ret
 
     @staticmethod
     def make_cubin(src, metadata, opt, capability):
+        capability = 86
         ptxas, _ = _path_to_binary("ptxas")
         with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.ptx') as fsrc, \
             tempfile.NamedTemporaryFile(delete=False, mode='r', suffix='.log') as flog:
