@@ -9,7 +9,6 @@
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Utility.h"
 #include "triton/Dialect/TritonGPU/IR/Dialect.h"
-#include "triton/Dialect/TritonNvidiaGPU/IR/Dialect.h"
 #include "triton/Tools/GenericSwizzling.h"
 #include "triton/Tools/LayoutUtils.h"
 #include "llvm/ADT/SmallVector.h"
@@ -20,7 +19,6 @@
 #define DBGS() (llvm::dbgs() << "[" DEBUG_TYPE "]: ")
 #define LDBG(X) LLVM_DEBUG(DBGS() << X << "\n")
 
-namespace ttng = mlir::triton::nvidia_gpu;
 
 namespace mlir {
 
@@ -221,10 +219,6 @@ unsigned defaultAllocationAnalysisScratchSizeFn(Operation *op) {
     auto elemTy = cast<PointerType>(value.getType()).getPointeeType();
     assert(!isa<PointerType>(elemTy) && "unexpected pointer type");
     return elems * std::max<int>(8, elemTy.getIntOrFloatBitWidth()) / 8;
-  }
-  if (isa<ttng::TensormapCreateOp>(op)) {
-    constexpr int32_t kTMASize = 128;
-    return kTMASize;
   }
   return 0;
 }

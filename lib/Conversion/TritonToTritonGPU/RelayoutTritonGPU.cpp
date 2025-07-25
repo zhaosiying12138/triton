@@ -2,7 +2,6 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "triton/Conversion/TritonToTritonGPU/Passes.h"
 #include "triton/Dialect/TritonGPU/Transforms/TritonGPUConversion.h"
-#include "triton/Dialect/TritonNvidiaGPU/IR/Dialect.h"
 
 namespace mlir::triton {
 #define GEN_PASS_DEF_RELAYOUTTRITONGPU

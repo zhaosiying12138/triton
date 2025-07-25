@@ -1,7 +1,6 @@
 #include "triton/Conversion/TritonGPUToLLVM/TypeConverter.h"
 
 #include "mlir/Support/LLVM.h"
-#include "triton/Dialect/TritonNvidiaGPU/IR/Dialect.h"
 
 using namespace mlir;
 using namespace mlir::triton;
@@ -54,12 +53,6 @@ Type TritonGPUToLLVMTypeConverter::convertMemDescType(
   // base ptr
   auto ptrType = LLVM::LLVMPointerType::get(
       ctx, targetInfo.getAddressSpace(type.getMemorySpace()));
-
-  if (isa<triton::nvidia_gpu::TensorMemoryEncodingAttr,
-          triton::nvidia_gpu::TensorMemoryScalesEncodingAttr>(
-          type.getEncoding())) {
-    return ptrType;
-  }
 
   SmallVector<Type, 4> types;
   types.push_back(ptrType);

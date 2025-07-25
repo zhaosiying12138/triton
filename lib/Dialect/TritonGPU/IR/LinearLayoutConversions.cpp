@@ -4,7 +4,6 @@
 #include "triton/Dialect/TritonGPU/IR/Dialect.h"
 #include "triton/Dialect/TritonGPU/IR/LinearLayoutConversions.h"
 #include "triton/Dialect/TritonGPU/IR/TritonGPUInterfaces.h"
-#include "triton/Dialect/TritonNvidiaGPU/Transforms/TMAUtilities.h"
 #include "triton/Tools/LayoutUtils.h"
 #include "triton/Tools/LinearLayout.h"
 #include "triton/Tools/StrUtil.h"
@@ -268,84 +267,6 @@ LinearLayout getCoreMatrixLinearLayout(NVMMASharedEncodingAttr shared,
 }
 
 } // namespace
-
-LinearLayout nvmmaSharedToLinearLayout(ArrayRef<int64_t> shape,
-                                       NVMMASharedEncodingAttr shared,
-                                       bool disableSwizzle) {
-  MLIRContext *ctx = shared.getContext();
-  int rank = shape.size();
-  auto shapePerCTA = getShapePerCTA(shared, shape);
-  auto kOffset = S("offset");
-  auto tmaShape = triton::nvidia_gpu::getTMABlockShape(shared, shapePerCTA,
-                                                       /*packedSize=*/true);
-  if (shared.getSwizzlingByteWidth() == 0) {
-    auto outDimNames = standardOutDimNames(ctx, rank);
-    LinearLayout layout = LinearLayout::identity1D(tmaShape[rank - 1], kOffset,
-                                                   outDimNames[rank - 1]);
-    for (int i = rank - 2; i >= 0; --i) {
-      layout *= LinearLayout::identity1D(tmaShape[i], kOffset, outDimNames[i]);
-    }
-    layout = ensureLayoutNotSmallerThan(layout, outDimNames, shapePerCTA);
-    return combineCtaCgaWithShape(layout, shared.getCTALayout(), shape);
-  }
-  assert(rank >= 2);
-
-  // Collapse all the outer dim into one. We will then create a layout for this
-  // shape and reshape it to the original shape.
-  std::array<int64_t, 2> collapsedTmaShape{1, tmaShape.back()};
-  for (int i = 0; i + 1 < rank; i++)
-    collapsedTmaShape[0] *= tmaShape[i];
-  if (shared.getTransposed()) {
-    std::swap(collapsedTmaShape[0], collapsedTmaShape[1]);
-  }
-
-  auto tileLayout = getCoreMatrixLinearLayout(shared, disableSwizzle);
-  auto outDimNames = standardOutDimNames(ctx, 2);
-  auto kRow = outDimNames[0];
-  auto kCol = outDimNames[1];
-  auto tileRows = tileLayout.getOutDimSize(kRow);
-  auto tileCols = tileLayout.getOutDimSize(kCol);
-
-  int packingFactor = shared.getFp4Padded() ? 2 : 1;
-  if (collapsedTmaShape[1] * packingFactor < tileCols ||
-      collapsedTmaShape[0] < tileRows) {
-    llvm::errs() << "Illegal shared layout; expected collapsed shapePerCTA to "
-                    "be at least ["
-                 << tileRows << ", " << (tileCols / packingFactor)
-                 << "], collapsedTmaShape: [" << collapsedTmaShape[0] << ", "
-                 << collapsedTmaShape[1] << "]\n";
-    llvm::report_fatal_error("Illegal shared layout");
-  }
-
-  // Distribute the remaining rows and cols.
-  auto layout =
-      ensureLayoutNotSmallerThan(tileLayout, outDimNames, collapsedTmaShape);
-
-  // Reshape the layout to the N-D pre-transposed shape per CTA.
-  SmallVector<int64_t> maybeTransposedTmaShape = tmaShape;
-  if (shared.getTransposed()) {
-    // Move the outer dim to the inner position.
-    // TODO: we should move back to using `order` instead of transposed to make
-    // the order more explicit.
-    std::rotate(maybeTransposedTmaShape.begin(),
-                maybeTransposedTmaShape.begin() + 1,
-                maybeTransposedTmaShape.end());
-  }
-  auto reshapedLayout = reshapeLayout(ctx, layout, maybeTransposedTmaShape);
-
-  if (shared.getTransposed()) {
-    SmallVector<int> order = {rank - 1};
-    for (int i = 0; i < rank - 1; i++) {
-      order.push_back(i);
-    }
-    reshapedLayout = transposeLinearLayout(reshapedLayout, order);
-  }
-
-  reshapedLayout = ensureLayoutNotSmallerThan(
-      reshapedLayout, standardOutDimNames(ctx, shapePerCTA.size()),
-      shapePerCTA);
-  return combineCtaCgaWithShape(reshapedLayout, shared.getCTALayout(), shape);
-}
 
 /// Function to generate lane and warp layout for dot operands.
 static LinearLayout broadcastedDotOperandLayout(MLIRContext *ctx,
@@ -1219,8 +1140,6 @@ TritonGPUDialect::toLinearLayout(ArrayRef<int64_t> shape, Attribute layout,
 
     if (auto shared = dyn_cast<SwizzledSharedEncodingAttr>(layout)) {
       result = swizzledSharedToLinearLayout(allocationShape, shared);
-    } else if (auto shared = dyn_cast<NVMMASharedEncodingAttr>(layout)) {
-      result = nvmmaSharedToLinearLayout(allocationShape, shared);
     } else if (auto sbl = dyn_cast<AMDRotatingSharedEncodingAttr>(layout)) {
       result = sharedToLinearLayoutAMDRotating(allocationShape, sbl);
     } else {

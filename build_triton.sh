@@ -1,0 +1,1 @@
+TRITON_BUILD_WITH_CLANG_LLD=1 TRITON_BUILD_PROTON=OFF TRITON_OFFLINE_BUILD=1 LLVM_SYSPATH=/home/gem5/codebase/llvm-project/build pip install -e . -v

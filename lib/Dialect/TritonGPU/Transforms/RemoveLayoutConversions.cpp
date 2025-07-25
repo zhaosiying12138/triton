@@ -183,8 +183,8 @@ void LayoutRematerialization::cleanup() {
 bool isLayoutAnchor(Operation *op) {
   if (isa<LoadOp, StoreOp>(op))
     return isExpensiveLoadOrStore(op);
-  if (isa<DotOp, DotScaledOp, nvidia_gpu::WarpGroupDotOp, AtomicRMWOp,
-          AtomicCASOp, triton::nvidia_gpu::TMEMLoadOp>(op))
+  if (isa<DotOp, DotScaledOp, AtomicRMWOp,
+          AtomicCASOp>(op))
     return true;
   if (auto gatherOp = dyn_cast<GatherOp>(op))
     return gatherOp.getEfficientLayout();
@@ -285,12 +285,6 @@ SmallVector<Value> LayoutPropagation::propagateToUsers(Value value,
       Value afterArg = whileOp.getAfterArguments()[argIndex];
       Value result = whileOp->getResult(argIndex);
       setEncoding({afterArg, result}, info, changed, user);
-      continue;
-    }
-    if (auto dotWaitOp = dyn_cast<nvidia_gpu::WarpGroupDotWaitOp>(user)) {
-      unsigned opIndex = use.getOperandNumber();
-      Value result = dotWaitOp->getResult(opIndex);
-      setEncoding(result, info, changed, user);
       continue;
     }
     if (auto gatherOp = dyn_cast<GatherOp>(user)) {
@@ -733,7 +727,7 @@ Operation *LayoutPropagation::rewriteOp(Operation *op) {
   if (op->hasTrait<OpTrait::SameOperandsAndResultEncoding>() ||
       op->hasTrait<OpTrait::Elementwise>() ||
       isa<ReduceOp, ExpandDimsOp, ReshapeOp, TransOp, JoinOp, SplitOp, GatherOp,
-          ConvertLayoutOp, nvidia_gpu::WarpGroupDotWaitOp>(op)) {
+          ConvertLayoutOp>(op)) {
     Operation *newOp = cloneElementwise(rewriter, op, encoding);
     for (auto [oldResult, newResult] :
          llvm::zip(op->getResults(), newOp->getResults())) {

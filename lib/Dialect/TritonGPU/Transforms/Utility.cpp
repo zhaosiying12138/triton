@@ -13,7 +13,6 @@
 #include "triton/Dialect/TritonGPU/IR/Dialect.h"
 #include "triton/Dialect/TritonGPU/IR/LinearLayoutConversions.h"
 #include "triton/Dialect/TritonGPU/Transforms/Utility.h"
-#include "triton/Dialect/TritonNvidiaGPU/IR/Dialect.h"
 #include "llvm/ADT/SetOperations.h"
 #include "llvm/Support/Debug.h"
 
@@ -23,7 +22,6 @@
 
 namespace tt = mlir::triton;
 namespace ttg = mlir::triton::gpu;
-namespace ttng = mlir::triton::nvidia_gpu;
 namespace mlir {
 
 using namespace triton;
@@ -528,8 +526,7 @@ Attribute inferSrcEncoding(Operation *op, Attribute encoding) {
   if (op->hasTrait<mlir::OpTrait::SameOperandsAndResultEncoding>() ||
       op->hasTrait<mlir::OpTrait::SameLoadStoreOperandsAndResultEncoding>() ||
       op->hasTrait<mlir::OpTrait::Elementwise>() ||
-      isa<scf::WhileOp, scf::YieldOp, scf::ConditionOp,
-          nvidia_gpu::WarpGroupDotWaitOp>(op)) {
+      isa<scf::WhileOp, scf::YieldOp, scf::ConditionOp>(op)) {
     return encoding;
   }
 
@@ -561,8 +558,7 @@ Attribute inferDstEncoding(Operation *op, Attribute encoding) {
   if (op->hasTrait<mlir::OpTrait::SameOperandsAndResultEncoding>() ||
       op->hasTrait<mlir::OpTrait::SameLoadStoreOperandsAndResultEncoding>() ||
       op->hasTrait<mlir::OpTrait::Elementwise>() ||
-      isa<scf::WhileOp, scf::ForOp, scf::YieldOp, scf::ConditionOp,
-          nvidia_gpu::WarpGroupDotWaitOp>(op))
+      isa<scf::WhileOp, scf::ForOp, scf::YieldOp, scf::ConditionOp>(op))
     return encoding;
   if (auto reduceOp = dyn_cast<triton::ReduceOp>(op))
     return inferDstEncoding(reduceOp, encoding);
@@ -1512,19 +1508,8 @@ void replaceUsesAndPropagateType(OpBuilder &builder, Operation *oldUse,
 
   // Perform late replacement.
   for (OpOperand *operand : operandsToReplace) {
-    if (auto wait = dyn_cast<ttng::WarpGroupDotWaitOp>(operand->getOwner())) {
-      // Need to update the return type on the wait op as well
-      builder.setInsertionPointAfter(wait);
-      auto operands = llvm::to_vector(wait.getOperands());
-      operands[operand->getOperandNumber()] = val;
-      auto newWait = builder.create<ttng::WarpGroupDotWaitOp>(
-          wait.getLoc(), operands, wait.getPendings());
-      wait.replaceAllUsesWith(newWait.getResults());
-      wait.erase();
-    } else {
       Operation *op = operand->getOwner();
       operand->set(val);
-    }
   }
 
   // Perform late op erasure.

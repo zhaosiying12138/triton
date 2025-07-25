@@ -2,8 +2,6 @@
 #define TRITON_DIALECT_TRITONGPU_TRANSFORMS_PASSES_H_
 
 #include "mlir/Pass/Pass.h"
-#include "nvidia/include/Dialect/NVWS/IR/Dialect.h"
-#include "triton/Dialect/TritonNvidiaGPU/IR/Dialect.h"
 
 namespace mlir {
 namespace triton {

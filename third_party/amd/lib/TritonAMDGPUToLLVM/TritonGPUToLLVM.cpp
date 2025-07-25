@@ -25,7 +25,6 @@
 #include "triton/Conversion/TritonGPUToLLVM/TypeConverter.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/TritonGPU/IR/Dialect.h"
-#include "triton/Dialect/TritonNvidiaGPU/IR/Dialect.h"
 
 #include "third_party/proton/dialect/include/TritonProtonToLLVM/PatternTritonProtonOpToLLVM.h"
 
@@ -58,7 +57,6 @@ public:
     addLegalDialect<mlir::scf::SCFDialect>();
     addIllegalDialect<triton::TritonDialect>();
     addIllegalDialect<triton::gpu::TritonGPUDialect>();
-    addIllegalDialect<triton::nvidia_gpu::TritonNvidiaGPUDialect>();
     addIllegalDialect<mlir::gpu::GPUDialect>();
     addLegalOp<mlir::UnrealizedConversionCastOp>();
     addLegalOp<triton::amdgpu::InstructionSchedHint>();
@@ -75,7 +73,7 @@ struct ConvertTritonAMDGPUToLLVM
 
   void getDependentDialects(DialectRegistry &registry) const override {
     registry
-        .insert<LLVM::LLVMDialect, NVVM::NVVMDialect, mlir::ROCDL::ROCDLDialect,
+        .insert<LLVM::LLVMDialect, mlir::ROCDL::ROCDLDialect,
                 mlir::triton::amdgpu::TritonAMDGPUDialect>();
   }
 

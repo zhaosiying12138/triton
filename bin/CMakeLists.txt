@@ -10,10 +10,7 @@ target_link_libraries(triton-opt PRIVATE
   ${dialect_libs}
   ${conversion_libs}
   ${triton_libs}
-  # tests
-  TritonTestAnalysis
-  TritonTestDialect
-  TritonAMDGPUTestAnalysis
+
   # MLIR core
   MLIROptLib
   MLIRPass
@@ -21,46 +18,6 @@ target_link_libraries(triton-opt PRIVATE
 )
 
 mlir_check_all_link_libraries(triton-opt)
-
-add_llvm_executable(triton-reduce triton-reduce.cpp PARTIAL_SOURCES_INTENDED)
-mlir_check_all_link_libraries(triton-reduce)
-
-llvm_update_compile_flags(triton-reduce)
-target_link_libraries(triton-reduce PRIVATE
-  ${dialect_libs}
-  ${conversion_libs}
-  ${triton_libs}
-  # tests
-  TritonTestAnalysis
-  TritonTestDialect
-  TritonAMDGPUTestAnalysis
-  # MLIR core
-  MLIRReduceLib
-  MLIRPass
-  MLIRTransforms
-)
-
-mlir_check_all_link_libraries(triton-reduce)
-
-add_llvm_executable(triton-lsp triton-lsp.cpp PARTIAL_SOURCES_INTENDED)
-
-llvm_update_compile_flags(triton-lsp)
-target_link_libraries(triton-lsp PRIVATE
-  ${dialect_libs}
-  ${conversion_libs}
-  ${triton_libs}
-  # tests
-  TritonTestAnalysis
-  TritonTestDialect
-  TritonAMDGPUTestAnalysis
-  # MLIR core
-  MLIRLspServerLib
-  MLIRPass
-  MLIRTransforms
-)
-
-mlir_check_all_link_libraries(triton-lsp)
-
 
 add_llvm_executable(triton-llvm-opt
   triton-llvm-opt.cpp
@@ -80,14 +37,3 @@ target_link_libraries(triton-llvm-opt PRIVATE
   LLVMCodeGen
   )
 export_executable_symbols_for_plugins(triton-llvm-opt)
-
-
-add_llvm_executable(triton-tensor-layout triton-tensor-layout.cpp PARTIAL_SOURCES_INTENDED)
-target_link_libraries(triton-tensor-layout PRIVATE
-  ${triton_libs}
-  ${conversion_libs}
-  ${dialect_libs}
-  TritonTestAnalysis
-  TritonTestDialect
-  TritonAMDGPUTestAnalysis
-  )
