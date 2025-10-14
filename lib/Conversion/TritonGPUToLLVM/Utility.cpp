@@ -6,6 +6,39 @@
 #include "triton/Dialect/TritonGPU/IR/LinearLayoutConversions.h"
 #include "llvm/ADT/STLExtras.h"
 
+#include "triton/Conversion/TritonGPUToLLVM/CuteJitOrc.h"
+
+// 保存并屏蔽 Triton 宏，避免污染 CUTE/CUTLASS
+#pragma push_macro("select")
+#pragma push_macro("bitcast")
+
+#ifdef select
+  #undef select
+  #define TRITON_RESTORE_SELECT 1
+#endif
+
+#ifdef bitcast
+  #undef bitcast
+  #define TRITON_RESTORE_BITCAST 1
+#endif
+
+// 这里随便 include 你需要的 CUTE/CUTLASS 头
+#include "cute/layout.hpp"
+// 如果还需要别的：#include <cute/print.hpp> 等
+
+// 恢复宏定义
+#ifdef TRITON_RESTORE_SELECT
+  #pragma pop_macro("select")
+  #undef TRITON_RESTORE_SELECT
+#endif
+
+#ifdef TRITON_RESTORE_BITCAST
+  #pragma pop_macro("bitcast")
+  #undef TRITON_RESTORE_BITCAST
+#endif
+
+using namespace cute;
+
 namespace mlir {
 
 namespace triton::gpu {
@@ -98,11 +131,52 @@ applyLinearLayout(Location loc, RewriterBase &rewriter,
   return outIndices;
 }
 
+// 只改模板参数即可复用：N=Tensor元素数，S=元素stride（通常1）
+// W=warp数，T=每warp线程数（32），V=每线程连续元素数
+template<int N, int S, int W, int T, int V>
+void dump_offsets(int warpId, int laneId) {
+  llvm::outs() << "[ZSY-CUTE-LAYOUT]: ";
+  static_assert((N % (W*T*V)) == 0, "N must be divisible by W*T*V");
+  constexpr int R = N / (W*T*V);  // “翻页”个数
+
+  // 1) GMEM 一维布局：索引 -> 物理地址（stride = S）
+  constexpr auto GMEM =
+      make_layout(make_shape(Int<N>{}), make_stride(Int<S>{}));
+
+  // 2) 线程×向量 元素：shape=(T,V), stride=(V,1)
+  constexpr auto L_lane_val =
+      make_layout(make_shape(Int<T>{}, Int<V>{}),
+                  make_stride(Int<V>{},  Int<1>{}));
+
+  // 3) 加 warp：shape=(W,T,V), stride=(T*V, V, 1)
+  constexpr auto L_warp_lane_val =
+      make_layout(make_shape(Int<W>{}, Int<T>{}, Int<V>{}),
+                  make_stride(Int<(T*V)>{}, Int<V>{}, Int<1>{}));
+
+  // 4) 再加翻页 reg_hi：shape=(W,T,R,V),
+  //    stride=(T*V, V, W*T*V, 1)   // 这里没有写死128/512，均由参数计算
+  constexpr auto L_full =
+      make_layout(make_shape(Int<W>{}, Int<T>{}, Int<R>{}, Int<V>{}),
+                  make_stride(Int<(T*V)>{}, Int<V>{}, Int<(W*T*V)>{}, Int<1>{}));
+
+  // 5) 组合得到： (warp,lane,reg_hi,val) -> 物理地址
+  constexpr auto MAP = composition(GMEM, L_full);
+
+  // 打印 (warpId,laneId) 的所有寄存器元素偏移（共 R*V 个）
+  for (int reg = 0; reg < R*V; ++reg) {
+    int reg_hi = reg / V;      // 第几“页”
+    int val    = reg % V;      // 页内第几个连续元素
+    int off = int(MAP(warpId, laneId, reg_hi, val));
+    std::cout << off << (reg+1 < R*V ? ' ' : '\n');
+  }
+}
+
 SmallVector<SmallVector<Value>>
 emitIndices(Location loc, RewriterBase &rewriter, const TargetInfoBase &target,
             Attribute layout, RankedTensorType type, bool withCTAOffset) {
   MLIRContext *ctx = rewriter.getContext();
   auto shape = type.getShape();
+  llvm::outs() << "[ZSY-LinearLayout] blocked_tensor_layout = " << layout << "\n";
 
   std::optional<LinearLayout> ll = triton::gpu::toLinearLayout(shape, layout);
   if (!ll.has_value())
@@ -132,27 +206,122 @@ emitIndices(Location loc, RewriterBase &rewriter, const TargetInfoBase &target,
   //
   // This approach produces code with lower register pressure and
   // less computations, compared to fused L(r,t,w,b) method.
-  auto idxsBase = applyLinearLayout(loc, rewriter, *ll,
-                                    {{kRegister, i32_val(0)},
-                                     {kLane, laneId},
-                                     {kWarp, warpId},
-                                     {kBlock, blockId}});
-  for (unsigned reg = 0; reg < ll->getInDimSize(str_attr("register")); reg++) {
-    auto idxsReg =
-        ll->apply({{kRegister, reg}, {kLane, 0}, {kWarp, 0}, {kBlock, 0}});
-    SmallVector<std::pair<StringAttr, Value>> idxs;
-    for (auto [idxBase, idxReg] : llvm::zip(idxsBase, idxsReg)) {
-      auto dimName = idxBase.first;
-      assert(dimName == idxReg.first &&
-             "dim names of block+warp+thread and register idx should be equal");
-      auto idx = xor_(idxBase.second, i32_val(idxReg.second));
-      idxs.emplace_back(dimName, idx);
+  // auto idxsBase = applyLinearLayout(loc, rewriter, *ll,
+  //                                   {{kRegister, i32_val(0)},
+  //                                    {kLane, laneId},
+  //                                    {kWarp, warpId},
+  //                                    {kBlock, blockId}});
+
+  SmallVector<std::pair<StringAttr, Value>> idxsBase;
+  Value idx_tmp0 = getThreadId(rewriter, loc);
+  Operation *anchor = rewriter.getInsertionBlock()->getParentOp();
+
+  // Value idx_tmp1 = shl(idx_tmp0, i32_val(2));
+  LLVM::LLVMFuncOp nvCuteFuncOp =
+    triton::gpu::appendOrGetExternFuncOp(rewriter, anchor, "__nv_cute_get_idx_base",
+      triton::gpu::getFunctionType(idx_tmp0.getType(), {idx_tmp0}));
+  Value idx_tmp1 = LLVM::createLLVMCallOp(rewriter, loc, nvCuteFuncOp, idx_tmp0).getResult();
+  // I implement only the 1D case
+  idxsBase.push_back({str_attr("dim0"), idx_tmp1});
+
+  auto blockedLayout = dyn_cast<triton::gpu::BlockedEncodingAttr>(layout);
+  const auto &order = blockedLayout.getOrder();
+  // I implement only the 1D case
+  assert(order.size() == 1);
+  assert(shape.size() == 1);
+                                     auto sizePerThread = blockedLayout.getSizePerThread()[order[0]];
+  llvm::outs() << "sizePerThread = " << sizePerThread << "\n";
+  auto THREADSPERWARP = blockedLayout.getThreadsPerWarp()[order[0]];
+  llvm::outs() << "THREADSPERWARP = " << THREADSPERWARP << "\n";
+  auto warpsPerCTA = blockedLayout.getWarpsPerCTA()[order[0]];
+  llvm::outs() << "warpsPerCTA = " << warpsPerCTA << "\n";
+  auto tensorShapeSize = shape[order[0]];
+  llvm::outs() << "tensorShapeSize = " << tensorShapeSize << "\n";
+
+  auto st = triton::runtime::initCuteJitORC(sizePerThread, THREADSPERWARP, warpsPerCTA, tensorShapeSize);
+  if (!st.ok) {
+    llvm::outs() << "[CuteJIT/MCJIT] init failed: " << st.msg << "\n";
+  }
+  int cuteLayoutSize = triton::runtime::getCuteLayoutSize();
+  if (-1 == cuteLayoutSize)
+    llvm::outs() << "[CuteJIT/MCJIT] getLayoutSize failed\n";
+  std::vector<int> resultBuffer;
+  resultBuffer.reserve(cuteLayoutSize);
+  st = triton::runtime::calculateCuteLayout(resultBuffer.data());
+  if (!st.ok) {
+    llvm::outs() << "[CuteJIT/MCJIT] calculate failed: " << st.msg << "\n";
+  }
+  llvm::outs() << "[Triton-CuteJIT/MCJIT] index offset = ";
+  for (int i = 0; i < cuteLayoutSize; i++) {
+    llvm::outs() << resultBuffer[i] << " ";
+  }
+  llvm::outs() << "\n";
+
+#if 0
+  auto thr_layout = make_layout(make_shape(Int<4 * 32>{}), make_stride(Int<1>{}));
+  auto val_layout = make_layout(make_shape(Int<4>{}), make_stride(Int<1>{}));
+  auto layout_mn = raked_product(thr_layout, val_layout);       // (tid,val) ⟶ (M,N)
+  printf("layout_mn: ");     print(layout_mn);  printf("\n");
+  auto tiler_mn  = product_each(cute::shape(layout_mn));              // (TileM, TileN) 或 1D 时为 (Tile)
+  // 临时 (tid,val) 的列主序布局：stride=(1, thr_size)
+  auto tmp_tv = make_layout(
+      make_shape(size(thr_layout), size(val_layout)),
+      make_stride(Int<1>{}, size(thr_layout)));
+  printf("tmp_tv: "); print(tmp_tv); printf("\n");
+  // TV-layout: (tid,val) -> (M,N)
+  auto tv_layout = composition(tmp_tv, right_inverse(layout_mn));
+  printf("inv(layout_mn): "); print(right_inverse(layout_mn)); printf("\n");
+
+  // 打印：和 cutedsl 的 `print` 对齐
+  printf("Tiler: ");     print(tiler_mn);  printf("\n");
+  printf("TV Layout: "); print(tv_layout); printf("\n");
+
+  auto GMEM_1D = make_layout(make_shape(Int<2048>{}), make_stride(Int<1>{}));
+  auto tiles = zipped_divide(GMEM_1D, tiler_mn);
+
+  // auto LL = composition(layout2, layout1);
+  // auto LL = layout2.compose(layout1, _);
+  auto L = logical_divide(tiles, tv_layout);
+  // auto LL = composition(tiles, make_tile(tv_layout, _));
+  printf("L: "); print(L); printf("\n");
+
+  // 演示：tid=0，打印 val=0..3, page=0..1 的 8 个偏移
+  int tid = 1;
+  for (int p = 0; p < int(size(get<1>(L))); ++p) {
+    for (int v = 0; v < int(size(get<1>(get<0>(L)))); ++v) {
+      int off = L(make_coord( make_coord(tid, v), p ));     // C++ 里 layout 是可调用的
+      printf("%d ", off);
     }
-    assert(idxs.size() == rank);
-    for (unsigned k = 0; k < rank; ++k) {
-      assert(idxs[k].first == str_attr("dim" + std::to_string(k)));
-    }
-    ret.push_back(llvm::to_vector(llvm::make_second_range(idxs)));
+  }
+  printf("\n");
+
+#endif
+
+  // llvm::outs() << "[ZSY-LinearLayout] reg = " << ll->getInDimSize(str_attr("register")) << ":\n";
+  // for (unsigned reg = 0; reg < ll->getInDimSize(str_attr("register")); reg++) {
+  //   auto idxsReg =
+  //       ll->apply({{kRegister, reg}, {kLane, 0}, {kWarp, 0}, {kBlock, 0}});
+  //   SmallVector<std::pair<StringAttr, Value>> idxs;
+  //   for (auto [idxBase, idxReg] : llvm::zip(idxsBase, idxsReg)) {
+  //     auto dimName = idxBase.first;
+  //     assert(dimName == idxReg.first &&
+  //            "dim names of block+warp+thread and register idx should be equal");
+  //     auto idx = xor_(idxBase.second, i32_val(idxReg.second));
+  //     idxs.emplace_back(dimName, idx);
+  //     llvm::outs() << "idx(regId = " << reg << ") = " << idxReg.second << "\n";
+
+  //   }
+
+  //   assert(idxs.size() == rank);
+  //   for (unsigned k = 0; k < rank; ++k) {
+  //     assert(idxs[k].first == str_attr("dim" + std::to_string(k)));
+  //   }
+  //   ret.push_back(llvm::to_vector(llvm::make_second_range(idxs)));
+  // }
+
+  // Suppose I only implement 1D BlockedLayout
+  for (int i = 0; i < cuteLayoutSize; i++) {
+    ret.push_back(SmallVector<Value>{xor_(idx_tmp1 /* idxsBase */, i32_val(resultBuffer[i]))});
   }
 
   return ret;

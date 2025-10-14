@@ -117,6 +117,12 @@ class CUDAOptions:
         extern_libs = {} if self.extern_libs is None else dict(self.extern_libs)
         if not extern_libs.get('libdevice', None):
             extern_libs['libdevice'] = os.getenv("TRITON_LIBDEVICE_PATH", str(default_libdir / 'libdevice.10.bc'))
+
+        libcutelayout_path = Path(os.getenv("TRITON_LIBDEVICE_PATH", str(default_libdir / 'libcutelayout.bc')))
+        if not libcutelayout_path.exists():
+            libcutelayout_path.touch()  # 生成一个 0 字节占位
+        extern_libs['libcutelayout'] = str(libcutelayout_path)
+
         object.__setattr__(self, 'extern_libs', tuple(extern_libs.items()))
         assert self.num_warps > 0 and (self.num_warps & (self.num_warps - 1)) == 0, \
                "num_warps must be a power of 2"
@@ -307,6 +313,8 @@ class CUDABackend(BaseBackend):
         metadata["global_scratch_size"] = src.get_int_attr("triton_gpu.global_scratch_memory_size")
         metadata["global_scratch_align"] = src.get_int_attr("triton_gpu.global_scratch_memory_alignment")
         ret = str(llvm_mod)
+        # print("LLVM IR")
+        # print(ret)
         del llvm_mod
         del context
         return ret
@@ -331,6 +339,8 @@ class CUDABackend(BaseBackend):
         if os.environ.get("NVPTX_ENABLE_DUMP", "0") == "1":
             print("// -----// NVPTX Dump //----- //")
             print(ret)
+        # print("// -----// NVPTX Dump //----- //")
+        # print(ret)
         return ret
 
     @staticmethod
