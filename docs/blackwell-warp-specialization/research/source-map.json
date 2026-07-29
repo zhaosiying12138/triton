@@ -1,0 +1,697 @@
+{
+  "schema_version": "1.0.0",
+  "snapshot": {
+    "repository": "triton-lang/triton",
+    "commit": "bf64a5db1bc8aab0fd4f0076e60f6c367852e47d",
+    "commit_short": "bf64a5db",
+    "frozen_on": "2026-07-30",
+    "target": "sm103",
+    "execution_scope": "compile-only",
+    "runtime_claims_allowed": false
+  },
+  "purpose": "Machine-readable source map for the Blackwell warp-specialization study. It connects every teaching claim and compiler-pipeline checkpoint to frozen source symbols, tests, and case-matrix entries.",
+  "interpretation": {
+    "evidence_kind": {
+      "fact": "Directly established by source code, pass registration, test fixture, or FileCheck at the frozen commit.",
+      "inference": "Reasoned expectation, chiefly PTX/SASS interpretation or performance implication; not established by an SM103 runtime measurement."
+    },
+    "support_level": {
+      "core": "Part of the default Blackwell compiler pipeline.",
+      "tested": "Covered by focused MLIR or Python tests at this commit.",
+      "heuristic": "Implemented and tested, but policy is deliberately heuristic rather than a semantic guarantee.",
+      "experimental": "Implemented with meaningful coverage but subject to explicit restrictions, FIXMEs, or a narrow recognized shape.",
+      "limited": "Only a negative/no-op contract or a compile-only structural claim is established."
+    },
+    "path_base": "repository root",
+    "symbol_note": "Symbols name Python functions/classes, C++ functions/classes, pass factories, MLIR test functions, or kernel definitions."
+  },
+  "pipeline": [
+    {
+      "id": "frontend_annotation",
+      "title": "Python syntax to TTIR loop marker",
+      "gate": "The user writes tl.range(..., warp_specialize=True).",
+      "source": [
+        {
+          "path": "python/triton/language/core.py",
+          "symbol": "range.__init__",
+          "role": "Stores the warp_specialize loop hint and documents the Blackwell/simple-matmul limitation."
+        },
+        {
+          "path": "python/triton/compiler/code_generator.py",
+          "symbol": "CodeGenerator.visit_For",
+          "role": "Transfers the hint to the scf.for as the unit attribute tt.warp_specialize."
+        }
+      ],
+      "steps": [
+        {
+          "order": 1,
+          "api": "tl.range(..., warp_specialize=True)",
+          "result": "Python iterator carries warp_specialize=true."
+        },
+        {
+          "order": 2,
+          "api": "CodeGenerator.visit_For",
+          "result": "Generated scf.for owns {tt.warp_specialize}."
+        }
+      ],
+      "tests": [
+        {
+          "path": "python/test/unit/language/test_warp_specialization.py",
+          "symbol": "matmul_tma_ws_kernel",
+          "checks": "Uses the frontend loop hint in an end-to-end TMA matmul fixture."
+        }
+      ],
+      "case_ids": [
+        "tma_auto_ws_gemm",
+        "persistent_tcgen05_gemm",
+        "persistent_attention",
+        "grouped_gemm"
+      ]
+    },
+    {
+      "id": "make_ttir",
+      "title": "TTIR normalization before GPU conversion",
+      "gate": "Always; rewrite_tensor_descriptor_to_pointer is skipped for sm103 because capability // 10 >= 9.",
+      "source": [
+        {
+          "path": "third_party/nvidia/backend/compiler.py",
+          "symbol": "CUDABackend.make_ttir",
+          "role": "Authoritative pass order."
+        }
+      ],
+      "steps": [
+        {"order": 1, "api": "passes.common.add_inliner", "result": "Inline callable TTIR."},
+        {"order": 2, "api": "passes.ttir.add_rewrite_tensor_descriptor_to_pointer", "gate": "capability // 10 < 9; skipped on sm103", "result": "Legacy target descriptor rewrite."},
+        {"order": 3, "api": "passes.common.add_canonicalizer", "result": "Canonical TTIR."},
+        {"order": 4, "api": "passes.ttir.add_combine", "result": "Combine TTIR operations."},
+        {"order": 5, "api": "passes.ttir.add_reorder_broadcast", "result": "Normalize broadcast placement."},
+        {"order": 6, "api": "passes.common.add_cse", "result": "Eliminate common subexpressions."},
+        {"order": 7, "api": "passes.common.add_symbol_dce", "result": "Remove dead symbols."},
+        {"order": 8, "api": "passes.ttir.add_loop_unroll", "result": "Apply requested loop unrolling."}
+      ],
+      "tests": [],
+      "case_ids": ["tma_auto_ws_gemm"]
+    },
+    {
+      "id": "make_ttgir_common_prefix",
+      "title": "Target-independent TTIR to TTGIR setup",
+      "gate": "Always before architecture-specific scheduling.",
+      "source": [
+        {
+          "path": "third_party/nvidia/backend/compiler.py",
+          "symbol": "CUDABackend.make_ttgir",
+          "role": "Authoritative pass order and cuda:{capability} target construction."
+        }
+      ],
+      "steps": [
+        {"order": 1, "api": "passes.ttir.add_convert_to_ttgpuir", "result": "Create TTGIR with cuda:103, requested num_warps, warp size 32, and num_ctas."},
+        {"order": 2, "api": "passes.ttgpuir.add_coalesce", "result": "Choose coalesced layouts."},
+        {"order": 3, "api": "passes.ttgpuir.add_f32_dot_tc", "result": "Legalize eligible f32 dot to tensor-core form; TF32 emulation enabled for sm103."},
+        {"order": 4, "api": "nvidia.passes.ttnvgpuir.add_plan_cta", "result": "Plan CTA layout."},
+        {"order": 5, "api": "passes.ttgpuir.add_remove_layout_conversions", "result": "Simplify layout transitions."},
+        {"order": 6, "api": "passes.ttgpuir.add_optimize_thread_locality", "result": "Improve thread-local access."},
+        {"order": 7, "api": "passes.ttgpuir.add_accelerate_matmul", "result": "Select accelerated matmul representation."},
+        {"order": 8, "api": "passes.ttgpuir.add_remove_layout_conversions", "result": "Clean up conversions introduced by matmul acceleration."},
+        {"order": 9, "api": "passes.ttgpuir.add_optimize_dot_operands", "result": "Optimize dot operand encodings."},
+        {"order": 10, "api": "nvidia.passes.ttnvgpuir.add_optimize_descriptor_encoding", "result": "Optimize tensor-descriptor encoding."},
+        {"order": 11, "api": "passes.ttir.add_loop_aware_cse", "result": "Remove loop-aware redundancy before scheduling."}
+      ],
+      "tests": [
+        {
+          "path": "python/test/unit/language/test_warp_specialization.py",
+          "symbol": "test_warp_specialize_tma_matmul",
+          "checks": "End-to-end fixture observes TMA, TCGen05, and warp-specialized TTGIR after the full route."
+        }
+      ],
+      "case_ids": ["tma_auto_ws_gemm", "mixed_tma_async_pipeline"]
+    },
+    {
+      "id": "make_ttgir_blackwell_branch",
+      "title": "Blackwell scheduling and automatic warp specialization",
+      "gate": "capability // 10 >= 10; active for the frozen sm103 study target.",
+      "source": [
+        {
+          "path": "third_party/nvidia/backend/compiler.py",
+          "symbol": "CUDABackend.make_ttgir",
+          "role": "Default Blackwell branch and exact ordering around automatic warp specialization."
+        }
+      ],
+      "steps": [
+        {"order": 12, "api": "passes.ttgpuir.add_fuse_nested_loops", "result": "Expose schedulable nested-loop shapes."},
+        {"order": 13, "api": "passes.common.add_canonicalizer", "result": "Normalize fused loops."},
+        {"order": 14, "api": "passes.ttir.add_triton_licm", "result": "Hoist loop-invariant work."},
+        {"order": 15, "api": "passes.ttgpuir.add_optimize_accumulator_init", "result": "Optimize accumulator initialization."},
+        {"order": 16, "api": "passes.ttgpuir.add_hoist_tmem_alloc(false)", "result": "Conservatively hoist tensor-memory allocation."},
+        {"order": 17, "api": "nvidia.passes.ttnvgpuir.add_promote_lhs_to_tmem", "result": "Promote eligible left-hand operand storage to TMEM."},
+        {"order": 18, "api": "passes.ttgpuir.add_assign_latencies(num_stages)", "result": "Annotate async latency/stage requirements."},
+        {"order": 19, "api": "passes.ttgpuir.add_schedule_loops", "result": "Construct the pre-WS software-pipeline schedule."},
+        {"order": 20, "api": "passes.ttgpuir.add_warp_specialize(num_stages)", "result": "Run the automatic WS composite pipeline only on marked/eligible loops."},
+        {"order": 21, "api": "passes.ttgpuir.add_pipeline(num_stages, dump_enabled)", "result": "Materialize software pipelining after partitions are formed."},
+        {"order": 22, "api": "passes.ttgpuir.add_optimize_partition_warps", "result": "Shrink specialized warp groups using op-kind and register heuristics."},
+        {"order": 23, "api": "passes.ttgpuir.add_combine_tensor_select_and_if", "result": "Simplify tensor selection/control flow."},
+        {"order": 24, "api": "passes.ttgpuir.add_hoist_tmem_alloc(true)", "result": "Repeat TMEM hoisting, now allowing movement out of if regions."},
+        {"order": 25, "api": "nvidia.passes.ttnvgpuir.add_remove_tmem_tokens", "result": "Remove temporary TMEM scheduling tokens."}
+      ],
+      "tests": [
+        {
+          "path": "test/TritonGPU/automatic-warp-specialization.mlir",
+          "symbol": "RUN pipeline and CLEAN checks",
+          "checks": "Runs hoist/latency/schedule/automatic-WS/pipeline/warp-count optimization and verifies internal tags are removed."
+        }
+      ],
+      "case_ids": [
+        "ordinary_async_no_auto_ws",
+        "mixed_tma_async_pipeline",
+        "tma_auto_ws_gemm",
+        "persistent_tcgen05_gemm",
+        "persistent_attention",
+        "grouped_gemm"
+      ]
+    },
+    {
+      "id": "make_ttgir_common_suffix",
+      "title": "Post-specialization TTGIR lowering and cleanup",
+      "gate": "Always after the architecture branch, with explicit per-pass target guards.",
+      "source": [
+        {
+          "path": "third_party/nvidia/backend/compiler.py",
+          "symbol": "CUDABackend.make_ttgir",
+          "role": "Authoritative post-WS pass order."
+        }
+      ],
+      "steps": [
+        {"order": 26, "api": "passes.common.add_canonicalizer", "result": "Canonicalize post-pipeline TTGIR."},
+        {"order": 27, "api": "passes.ttir.add_loop_aware_cse", "result": "Loop-aware redundancy removal."},
+        {"order": 28, "api": "passes.ttgpuir.add_prefetch", "gate": "capability // 10 == 8; skipped on sm103", "result": "Ampere-only prefetch."},
+        {"order": 29, "api": "passes.ttgpuir.add_optimize_dot_operands", "result": "Re-optimize dot operands after pipelining."},
+        {"order": 30, "api": "passes.ttgpuir.add_coalesce_async_copy", "result": "Coalesce async copies."},
+        {"order": 31, "api": "nvidia.passes.ttnvgpuir.add_optimize_tmem_layouts", "result": "Optimize tensor-memory layouts."},
+        {"order": 32, "api": "nvidia.passes.ttnvgpuir.add_tmem_load_reduce", "result": "Reduce redundant TMEM loads."},
+        {"order": 33, "api": "nvidia.passes.ttnvgpuir.add_tma_lowering", "gate": "capability // 10 >= 9; active on sm103", "result": "Lower tensor-descriptor operations toward TMA operations."},
+        {"order": 34, "api": "passes.ttgpuir.add_remove_layout_conversions", "result": "Clean TMA/TMEM layout conversions."},
+        {"order": 35, "api": "nvidia.passes.ttnvgpuir.add_interleave_tmem", "result": "Interleave TMEM operations."},
+        {"order": 36, "api": "passes.ttgpuir.add_reduce_data_duplication", "result": "Reduce replicated values."},
+        {"order": 37, "api": "passes.ttgpuir.add_reorder_instructions", "result": "Reorder instructions for target scheduling."},
+        {"order": 38, "api": "passes.ttir.add_loop_aware_cse", "result": "Final loop-aware CSE."},
+        {"order": 39, "api": "passes.common.add_symbol_dce", "result": "Delete dead symbols."},
+        {"order": 40, "api": "nvidia.passes.ttnvgpuir.add_fence_insertion(capability)", "result": "Insert NVIDIA shared/async ordering fences."},
+        {"order": 41, "api": "nvidia.passes.ttnvgpuir.add_lower_mma", "result": "Lower abstract matmul operations to NVIDIA forms including MMAv5."},
+        {"order": 42, "api": "passes.common.add_sccp", "result": "Sparse conditional constant propagation."},
+        {"order": 43, "api": "passes.common.add_cse", "result": "Common subexpression elimination."},
+        {"order": 44, "api": "passes.common.add_canonicalizer", "result": "Final ordinary canonicalization."},
+        {"order": 45, "api": "FPSan subpipeline", "gate": "fpsan instrumentation only", "result": "FP sanitizer, forced layout cleanup, canonicalization, and CSE."}
+      ],
+      "tests": [
+        {
+          "path": "test/TritonGPU/proxy_fence_insertion.mlir",
+          "symbol": "multi-CTA and async-copy fixtures",
+          "checks": "Focused ordering expectations later consumed by LLIR conversion."
+        },
+        {
+          "path": "test/Conversion/tritongpu_to_llvm_blackwell.mlir",
+          "symbol": "tc_gen5_mma and TMEM fixtures",
+          "checks": "Blackwell operation lowering structure."
+        }
+      ],
+      "case_ids": ["scaled_blockscale", "two_cta_cluster"]
+    },
+    {
+      "id": "automatic_ws_composite",
+      "title": "AutomaticWarpSpecialization nested pass manager",
+      "gate": "Only scf.for operations carrying tt.warp_specialize are candidates; PartitionScheduling returns without materializing partitions when no eligible descriptor load/store exists.",
+      "source": [
+        {
+          "path": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/AutomaticWarpSpecialization.cpp",
+          "symbol": "AutomaticWarpSpecialization::runOnOperation",
+          "role": "Authoritative composite-pass order."
+        },
+        {
+          "path": "python/src/passes.cc",
+          "symbol": "add_warp_specialize",
+          "role": "Python binding to createTritonGPUAutomaticWarpSpecialization with numStages."
+        }
+      ],
+      "steps": [
+        {"order": 1, "api": "createTritonGPUPartitionScheduling", "implementation": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp", "result": "Build and serialize tentative op partitions."},
+        {"order": 2, "api": "VerifyWarpSpecializationPartitions", "implementation": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/AutomaticWarpSpecialization.cpp", "result": "Verify partition invariants."},
+        {"order": 3, "api": "createNVWSHoistTmemStore", "implementation": "third_party/nvidia/lib/Dialect/NVWS/Transforms/HoistTmemStore.cpp", "result": "Fold/hoist safe TMEM zero stores in persistent WS loops."},
+        {"order": 4, "api": "VerifyWarpSpecializationPartitions", "result": "Re-check invariants."},
+        {"order": 5, "api": "createNVWSInsertAref", "implementation": "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp", "result": "Represent cross-partition shared/register dataflow with ARef protocol operations."},
+        {"order": 6, "api": "VerifyWarpSpecializationPartitions", "result": "Re-check invariants."},
+        {"order": 7, "api": "createNVWSInsertTmemAref", "implementation": "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertTmemAref.cpp", "result": "Represent TMEM ownership hand-off and token ordering."},
+        {"order": 8, "api": "VerifyWarpSpecializationPartitions", "result": "Re-check invariants."},
+        {"order": 9, "api": "createSCCPPass", "result": "Fold constants exposed by ARef insertion."},
+        {"order": 10, "api": "VerifyWarpSpecializationPartitions", "result": "Re-check invariants."},
+        {"order": 11, "api": "createCSEPass", "result": "Remove ARef-related redundancy."},
+        {"order": 12, "api": "VerifyWarpSpecializationPartitions", "result": "Final pre-lowering invariant check."},
+        {"order": 13, "api": "createNVWSLowerAref(numStages)", "implementation": "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp", "result": "Create empty/full barrier protocols, TMA loads, and multibuffering."},
+        {"order": 14, "api": "createTritonGPUPartitionLoops", "implementation": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionLoops.cpp", "result": "Clone each partition into nvws.warp_group regions."},
+        {"order": 15, "api": "createNVWSLowerWarpGroup", "implementation": "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerWarpGroup.cpp", "result": "Form stable ttg.warp_specialize regions."},
+        {"order": 16, "api": "createTritonGPUScheduleLoops", "result": "Rebuild schedule after structural partitioning."},
+        {"order": 17, "api": "multiBufferTMADescriptors", "implementation": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/AutomaticWarpSpecialization.cpp", "result": "Use numStages + 1 descriptor buffers and schedule numDescriptors + 1."},
+        {"order": 18, "api": "clearInternalWarpSpecializationAttrs", "implementation": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/AutomaticWarpSpecialization.cpp", "result": "Erase transient partition and scheduling attributes."
+        }
+      ],
+      "tests": [
+        {
+          "path": "test/TritonGPU/automatic-warp-specialization.mlir",
+          "symbol": "all functions and CLEAN prefix",
+          "checks": "Positive, mixed, persistent, attention/grouped shapes and no-eligible-memory no-op; transient tags are absent at the end."
+        }
+      ],
+      "case_ids": [
+        "ordinary_async_no_auto_ws",
+        "mixed_tma_async_pipeline",
+        "tma_auto_ws_gemm",
+        "persistent_tcgen05_gemm",
+        "persistent_attention",
+        "grouped_gemm"
+      ]
+    },
+    {
+      "id": "make_llir",
+      "title": "Warp-group resource allocation, synchronization analysis, and LLVM lowering",
+      "gate": "After TTGIR construction; sm103 compile-only in this study.",
+      "source": [
+        {
+          "path": "third_party/nvidia/backend/compiler.py",
+          "symbol": "CUDABackend.make_llir",
+          "role": "Authoritative top-level LLIR pass order."
+        },
+        {
+          "path": "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/TritonGPUToLLVM.cpp",
+          "symbol": "ConvertTritonGPUToLLVM::runOnOperation",
+          "role": "Nested synchronization analyses executed inside add_to_llvmir."
+        }
+      ],
+      "steps": [
+        {"order": 1, "api": "passes.ttgpuir.add_global_sanitizer", "gate": "gsan only", "result": "Instrument before shared-memory allocation and set launch-PDL attribute."},
+        {"order": 2, "api": "passes.ttgpuir.add_combine_tensor_select_and_if", "result": "Normalize control flow."},
+        {"order": 3, "api": "passes.ttgpuir.add_allocate_warp_groups(instrumented)", "result": "Pad worker groups, assign warp IDs/register budgets, and set ttg.total-num-warps."},
+        {"order": 4, "api": "passes.convert.add_scf_to_cf", "result": "Lower structured control flow."},
+        {"order": 5, "api": "passes.gluon.add_inliner", "result": "Inline residual Gluon regions."},
+        {"order": 6, "api": "passes.ttgpuir.add_prepare_consan_captures", "gate": "consan only", "result": "Prepare captures for instrumentation."},
+        {"order": 7, "api": "nvidia.passes.ttgpuir.add_allocate_shared_memory_nv", "result": "Assign NVIDIA shared-memory addresses."},
+        {"order": 8, "api": "nvidia.passes.ttnvgpuir.add_allocate_tensor_memory", "result": "Allocate Blackwell TMEM columns."},
+        {"order": 9, "api": "nvidia.passes.ttnvgpuir.add_check_matmul_two_cta", "result": "Validate two-CTA MMAv5 legality."},
+        {"order": 10, "api": "instrumentation.patch(ttgpuir_to_llvmir)", "gate": "instrumentation configured", "result": "Optional instrumentation insertion point."},
+        {"order": 11, "api": "nvidia.passes.ttnvgpuir.add_proxy_fence_insertion", "result": "Insert proxy fences for generic/async/TMA/TMEM visibility."},
+        {"order": 12, "api": "nvidia.passes.ttnvgpuir.add_tmem_barrier_insertion", "result": "Insert barriers for overlapping TMEM dependencies."},
+        {"order": 13, "api": "nvidia.passes.ttgpuir.add_to_llvmir", "result": "Run cluster-barrier insertion, cross-CTA init sync, membar analysis, cluster mbar allocation, and dialect conversion."},
+        {"order": 14, "api": "nvidia.passes.ttnvgpuir.add_initialize_ws_cluster_barriers", "result": "Initialize the two shared-cluster barrier slots and counter needed inside WS."},
+        {"order": 15, "api": "passes.ttgpuir.add_canonicalize_llvm_ir", "result": "Canonicalize LLVM-dialect IR."},
+        {"order": 16, "api": "passes.common.add_cse", "result": "Eliminate LLVM-dialect redundancy."},
+        {"order": 17, "api": "nvidia.passes.ttnvgpuir.add_warp_specialize_to_llvm", "result": "Lower ttg.warp_specialize into default/worker CFG, shared state, barriers, captures, and register reallocation."},
+        {"order": 18, "api": "nvidia.passes.ttnvgpuir.add_nvgpu_to_llvm", "result": "Lower remaining NVIDIA GPU operations."},
+        {"order": 19, "api": "passes.common.add_canonicalizer", "result": "Canonicalize lowered IR."},
+        {"order": 20, "api": "passes.common.add_cse", "result": "Eliminate redundancy."},
+        {"order": 21, "api": "passes.common.add_symbol_dce", "result": "Delete dead helper symbols."},
+        {"order": 22, "api": "passes.convert.add_nvvm_to_llvm", "result": "Translate NVVM operations to LLVM representation/PTX intrinsics."},
+        {"order": 23, "api": "passes.llvmir.add_di_scope", "gate": "line info enabled and local-variable extraction disabled", "result": "Attach debug scopes."},
+        {"order": 24, "api": "instrumentation.patch(llvmir_to_llvm)", "gate": "instrumentation configured", "result": "Optional final MLIR instrumentation point."}
+      ],
+      "nested_add_to_llvmir_order": [
+        {"order": 1, "symbol": "ModuleAllocation", "result": "Build allocation analysis."},
+        {"order": 2, "symbol": "runClusterBarrierInsertion", "result": "Insert CTA/cluster synchronization for distributed dependencies."},
+        {"order": 3, "symbol": "runCrossCTAMBarrierInitSyncInsertion", "result": "Synchronize cross-CTA mbarrier initialization."},
+        {"order": 4, "symbol": "ModuleMembarAnalysis::run", "result": "Insert memory barriers from dataflow analysis."},
+        {"order": 5, "symbol": "runClusterBarrierMbarAllocator", "result": "Allocate cluster barrier slots and annotate offsets/count."},
+        {"order": 6, "symbol": "dialect conversions", "result": "Lower TTGPU/NVIDIA operations to LLVM/NVVM forms."}
+      ],
+      "tests": [
+        {
+          "path": "test/Conversion/allocate_warp_groups.mlir",
+          "symbol": "all functions",
+          "checks": "Warp IDs, padding, total warps, and register budgets."
+        },
+        {
+          "path": "test/Conversion/warp_specialize_to_llvm.mlir",
+          "symbol": "all functions",
+          "checks": "Barrier rewrite, persistent switch loop, captures, warp-ID order, CFG, rematerialization, and setmaxnreg."
+        }
+      ],
+      "case_ids": ["explicit_ws_micro_ir", "register_allocation", "two_cta_cluster"]
+    }
+  ],
+  "knowledge_points": [
+    {
+      "id": "kp_frontend_contract",
+      "title": "warp_specialize is a loop hint, not a promise that a partition will be formed",
+      "evidence_kind": "fact",
+      "support_level": "core",
+      "summary": "The frontend emits tt.warp_specialize on scf.for. Eligibility and profitable partition formation are decided later; a marked loop can remain unspecialized.",
+      "sources": [
+        {"path": "python/triton/language/core.py", "symbol": "range.__init__", "role": "Public option and documented limitation."},
+        {"path": "python/triton/compiler/code_generator.py", "symbol": "CodeGenerator.visit_For", "role": "TTIR attribute emission."},
+        {"path": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp", "symbol": "hasEligibleMemoryOps", "role": "Late eligibility check."}
+      ],
+      "tests": [
+        {"path": "test/TritonGPU/automatic-warp-specialization.mlir", "symbol": "no_eligible_memory_ops", "checks": "Marked loop produces no warp-specialize op without eligible descriptor memory operations."}
+      ],
+      "case_ids": ["ordinary_async_no_auto_ws"],
+      "limitations": ["At this snapshot automatic eligibility requires recognized descriptor load/store roots; a generic async-copy-only loop does not establish autoWS support."]
+    },
+    {
+      "id": "kp_target_gate",
+      "title": "Default autoWS is in the Blackwell compiler branch",
+      "evidence_kind": "fact",
+      "support_level": "core",
+      "summary": "compiler.py invokes automatic warp specialization in the capability // 10 >= 10 branch, after latency assignment/scheduling and before pipeline materialization.",
+      "sources": [
+        {"path": "third_party/nvidia/backend/compiler.py", "symbol": "CUDABackend.make_ttgir", "role": "Architecture gate and pass order."},
+        {"path": "python/triton/_internal_testing.py", "symbol": "is_blackwell_ultra", "role": "Test helper identifies exact 10.3 devices."}
+      ],
+      "tests": [
+        {"path": "python/test/unit/language/test_warp_specialization.py", "symbol": "test_warp_specialize_tma_matmul", "checks": "Blackwell E2E compile/run fixture with TMA requirements."}
+      ],
+      "case_ids": ["tma_auto_ws_gemm"],
+      "limitations": ["All proposed evidence is sm103 compile-only and makes no runtime-equivalence claim."]
+    },
+    {
+      "id": "kp_partition_scheduling",
+      "title": "PartitionScheduling turns dataflow roots into a fixed-point partition assignment",
+      "evidence_kind": "fact",
+      "support_level": "experimental",
+      "summary": "A graph is built over loop operations. Descriptor loads/stores, TMEM loads, TCGen5 MMA/scaled MMA, and manual data tags seed data partitions; merge constraints and heuristics run to a fixed point, partitions propagate, cheap/view operations may be duplicated, and temporary IDs are serialized.",
+      "sources": [
+        {"path": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp", "symbol": "buildGraph", "role": "Dataflow graph construction."},
+        {"path": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp", "symbol": "initialDataValues", "role": "Recognized partition roots."},
+        {"path": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp", "symbol": "mergePartitions", "role": "Fixed-point heuristic merging."},
+        {"path": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp", "symbol": "propagatePartitions", "role": "Assignment to dependent operations."},
+        {"path": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp", "symbol": "duplicateCheapOps", "role": "Cheap recomputation across partitions."},
+        {"path": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp", "symbol": "serialize", "role": "Temporary IR attributes consumed downstream."}
+      ],
+      "tests": [
+        {"path": "test/TritonGPU/partition-scheduling.mlir", "symbol": "attention_forward", "checks": "Attention graph partitioning."},
+        {"path": "test/TritonGPU/partition-scheduling.mlir", "symbol": "scaled_mma_with_loads", "checks": "Scaled MMA data roots."},
+        {"path": "test/TritonGPU/partition-scheduling.mlir", "symbol": "matmul_nested_persistent_ws_kernel", "checks": "Nested persistent loop."}
+      ],
+      "case_ids": ["tma_auto_ws_gemm", "persistent_tcgen05_gemm", "scaled_blockscale", "persistent_attention"],
+      "limitations": ["Partition boundaries are policy, not ABI; heuristic changes can alter the exact number or membership of partitions."]
+    },
+    {
+      "id": "kp_partition_loops",
+      "title": "PartitionLoops materializes independent warp-group programs",
+      "evidence_kind": "fact",
+      "support_level": "tested",
+      "summary": "The pass recursively clones for/if/reduce and ordinary operations into nvws.warp_group regions, remaps loop-carried values and captures, and rejects unresolved cross-partition SSA dependencies.",
+      "sources": [
+        {"path": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionLoops.cpp", "symbol": "WarpGroupBuilder", "role": "Per-partition builder and value mapping."},
+        {"path": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionLoops.cpp", "symbol": "cloneForOp/cloneIfOp/cloneReduceOp/cloneOp", "role": "Recursive structural cloning."},
+        {"path": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionLoops.cpp", "symbol": "triton::gpu::partitionLoop", "role": "Top-level materialization and validation."}
+      ],
+      "tests": [
+        {"path": "test/TritonGPU/partition-loops.mlir", "symbol": "multiple_partitions", "checks": "Multiple warp-group regions."},
+        {"path": "test/TritonGPU/partition-loops.mlir", "symbol": "tensor_captures_over_smem", "checks": "Cross-region capture lowering."},
+        {"path": "test/TritonGPU/partition-loops.mlir", "symbol": "still_has_ssa_deps", "checks": "Negative invariant test."}
+      ],
+      "case_ids": ["explicit_ws_micro_ir", "tma_auto_ws_gemm"],
+      "limitations": ["Correctness depends on preceding ARef/TMEM-ARef passes eliminating non-representable cross-partition SSA edges."]
+    },
+    {
+      "id": "kp_shared_aref",
+      "title": "InsertAref makes producer-consumer hand-off explicit",
+      "evidence_kind": "fact",
+      "support_level": "tested",
+      "summary": "Cross-partition tensor, scalar, and shared-memory values are wrapped in ARef create/put/get protocol operations. Tensor-descriptor loads become NVWS descriptor loads writing ARef-owned shared storage; consumer exits are placed after a suitable post-dominator.",
+      "sources": [
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp", "symbol": "getProducedValues", "role": "Find candidate cross-partition values."},
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp", "symbol": "getTxCount", "role": "Compute TMA transaction bytes."},
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp", "symbol": "createNVWSDescriptorLoadOp", "role": "Convert descriptor load to ARef-aware producer."},
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp", "symbol": "createArefGet", "role": "Place consumer protocol."},
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp", "symbol": "insertArefs", "role": "Loop/block transformation driver."}
+      ],
+      "tests": [
+        {"path": "test/NVWS/insert_aref.mlir", "symbol": "warp_specialize_tma_matmul", "checks": "TMA producer to MMA consumer."},
+        {"path": "test/NVWS/insert_aref.mlir", "symbol": "load_used_as_reg_and_smem", "checks": "One value with register and shared uses."},
+        {"path": "test/NVWS/insert_aref.mlir", "symbol": "two_consumers/scalar_consumers/conditional_consumer", "checks": "Multiple, scalar, and control-flow consumers."}
+      ],
+      "case_ids": ["shared_aref", "mixed_tma_async_pipeline"],
+      "limitations": ["ARef is an intermediate compiler protocol; its operation names are not stable runtime ABI."]
+    },
+    {
+      "id": "kp_tmem_aref",
+      "title": "InsertTmemAref tracks TMEM ownership over async-token DAGs",
+      "evidence_kind": "fact",
+      "support_level": "experimental",
+      "summary": "The pass builds a TMEM access DAG, detects producer/consumer partitioning, inserts ownership ARefs and stage annotations, and contains a loop-scheduler workaround. The implementation models ping-pong hand-off and caps the scheme at two groups.",
+      "sources": [
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertTmemAref.cpp", "symbol": "TmemAccessDag", "role": "Async token and TMEM access graph."},
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertTmemAref.cpp", "symbol": "hasProducerConsumerPartitioning", "role": "Detect ownership transfer."},
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertTmemAref.cpp", "symbol": "insertTmemAref", "role": "Insert TMEM ARef protocol."},
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertTmemAref.cpp", "symbol": "workaroundForLoopScheduler", "role": "Repair schedule information around the transformed loop."}
+      ],
+      "tests": [
+        {"path": "test/NVWS/aref-tmem-insertion.mlir", "symbol": "warp_specialize_tma_matmul", "checks": "MMA producer/TMEM consumer transfer."},
+        {"path": "test/NVWS/aref-tmem-insertion.mlir", "symbol": "attention_forward", "checks": "Multiple TMEM flows in attention."},
+        {"path": "test/NVWS/aref-tmem-insertion.mlir", "symbol": "matmul_scaled_rhs_scales_tma", "checks": "Scaled MMA path."}
+      ],
+      "case_ids": ["tmem_aref", "persistent_attention", "scaled_blockscale"],
+      "limitations": ["Ping-pong ownership supports at most two participating groups in this implementation.", "Scaled TMEM flows have targeted special handling rather than a general proof for arbitrary graphs."]
+    },
+    {
+      "id": "kp_lower_aref",
+      "title": "LowerAref turns ownership into empty/full barrier protocols and multibuffering",
+      "evidence_kind": "fact",
+      "support_level": "experimental",
+      "summary": "ARefs lower to barrier allocation, wait/arrive operations, concrete TMA loads, and shared/TMEM stage buffers. numStages controls multibuffering; compatible ARefs can be combined.",
+      "sources": [
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp", "symbol": "assignStageCluster", "role": "Attach stage/cluster scheduling metadata."},
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp", "symbol": "createBarriers", "role": "Create empty/full mbarrier storage."},
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp", "symbol": "lowerTMALoad", "role": "Materialize TMA producer."},
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp", "symbol": "rewritePutEnterOp/rewriteGetEnterOp/rewritePutExitOp/rewriteGetExitOp", "role": "Implement protocol transitions."},
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp", "symbol": "multiBufferAref/combineArefs", "role": "Stage buffers and reduce redundant protocols."}
+      ],
+      "tests": [
+        {"path": "test/NVWS/lower_aref.mlir", "symbol": "warp_specialize_tma_matmul", "checks": "Barrierized TMA/MMA protocol."},
+        {"path": "test/NVWS/lower_aref.mlir", "symbol": "two_consumers/three_consumers", "checks": "Fan-out synchronization."},
+        {"path": "test/NVWS/lower_aref.mlir", "symbol": "attention_forward", "checks": "Attention pipeline lowering."}
+      ],
+      "case_ids": ["shared_aref", "tmem_aref", "persistent_attention"],
+      "limitations": ["Source comments acknowledge that some generated synchronization can expose less-than-ideal parallelism; structural correctness does not imply optimal overlap."]
+    },
+    {
+      "id": "kp_lower_warp_group",
+      "title": "LowerWarpGroup establishes the stable ttg.warp_specialize boundary",
+      "evidence_kind": "fact",
+      "support_level": "tested",
+      "summary": "nvws.warp_group regions become ttg.warp_specialize partitions. The first group becomes the default region only when its warp count equals the module default; otherwise an empty default is created.",
+      "sources": [
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerWarpGroup.cpp", "symbol": "createWarpSpecializeOp", "role": "Construct stable WS operation."},
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerWarpGroup.cpp", "symbol": "LowerWarpGroup", "role": "Pattern rewriting and default-region selection."}
+      ],
+      "tests": [
+        {"path": "test/NVWS/lower_warp_group.mlir", "symbol": "warp_group/warp_default/warp_multiple_group", "checks": "Default and worker region construction."}
+      ],
+      "case_ids": ["explicit_ws_micro_ir", "tma_auto_ws_gemm"],
+      "limitations": []
+    },
+    {
+      "id": "kp_hoist_tmem_store",
+      "title": "HoistTmemStore removes safe persistent-loop TMEM clears",
+      "evidence_kind": "fact",
+      "support_level": "heuristic",
+      "summary": "The pass recognizes TMEM allocation/zero-store/MMAv5 patterns under WS loops and can fold the clear into allocation or hoist allocation. Removal is guarded by useD=false and matching execution/trip behavior or proof the loop executes at least once.",
+      "sources": [
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/HoistTmemStore.cpp", "symbol": "underWSLoop", "role": "Scope recognition."},
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/HoistTmemStore.cpp", "symbol": "FoldTmemStoreIntoAlloc", "role": "Clear folding rewrite."},
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/HoistTmemStore.cpp", "symbol": "canRemoveTmemStore/canProveExecuteOnce", "role": "Safety conditions."},
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/HoistTmemStore.cpp", "symbol": "hoistTmemAlloc", "role": "Persistent-loop transformation."}
+      ],
+      "tests": [
+        {"path": "test/NVWS/hoist_tmem_store.mlir", "symbol": "matmul_nested_persistent_ws_kernel", "checks": "Nested persistent WS kernel optimization."}
+      ],
+      "case_ids": ["persistent_tcgen05_gemm"],
+      "limitations": ["This is a narrow pattern optimization; failure to match should preserve correctness but can retain synchronization and clearing cost."]
+    },
+    {
+      "id": "kp_partition_warp_heuristic",
+      "title": "OptimizePartitionWarps shrinks worker groups with target-specific heuristics",
+      "evidence_kind": "fact",
+      "support_level": "heuristic",
+      "summary": "Each partition is extracted and relayouted at candidate warp counts. The estimate uses twice the largest tensor i32-register footprint, a 65536-register SM budget, minimum 2 warps for TMA loads, minimum 4 for TMEM operations, and target register requests of 88 with tensor computation or 24 otherwise.",
+      "sources": [
+        {"path": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/OptimizePartitionWarps.cpp", "symbol": "takeIntoFunction/extractPartitionBody/relayoutWarps", "role": "Isolate and recompile a partition at alternate warp counts."},
+        {"path": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/OptimizePartitionWarps.cpp", "symbol": "getTensorNumI32Regs", "role": "Register-footprint estimate."},
+        {"path": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/OptimizePartitionWarps.cpp", "symbol": "optimizePartitionNumWarps", "role": "Halving policy and operation-specific minima."}
+      ],
+      "tests": [
+        {"path": "test/TritonGPU/optimize-partition-warps.mlir", "symbol": "no_tensor_computations/small_tensor_computation/large_tensor_computation", "checks": "Warp shrink by workload size."},
+        {"path": "test/TritonGPU/optimize-partition-warps.mlir", "symbol": "register_use_heuristic", "checks": "Register pressure policy."},
+        {"path": "test/TritonGPU/optimize-partition-warps.mlir", "symbol": "tmem_min_4_warps", "checks": "TMEM lower bound."}
+      ],
+      "case_ids": ["register_allocation"],
+      "limitations": ["The register estimate is not ptxas occupancy analysis and does not predict runtime speedup.", "Exact worker counts may change when layouts or heuristics evolve."]
+    },
+    {
+      "id": "kp_allocate_warp_groups",
+      "title": "AllocateWarpGroups gives worker partitions physical warp IDs and register budgets",
+      "evidence_kind": "fact",
+      "support_level": "core",
+      "summary": "All WS operations are padded to the kernel maximum number of extra four-warp groups. Larger groups receive lower IDs, total-num-warps is recorded, requested registers are rounded in eight-register units, and the remaining budget is assigned to the default region. Assert/print/instrumented regions retain a minimum of 32 registers.",
+      "sources": [
+        {"path": "lib/Conversion/TritonGPUToLLVM/AllocateWarpGroups.cpp", "symbol": "regionUsesAssertOrPrint/minRegistersForRegion", "role": "Minimum register policy."},
+        {"path": "lib/Conversion/TritonGPUToLLVM/AllocateWarpGroups.cpp", "symbol": "padToMaxWarpGroups", "role": "Uniform worker-group topology."},
+        {"path": "lib/Conversion/TritonGPUToLLVM/AllocateWarpGroups.cpp", "symbol": "AllocateWarpGroups::runOnOperation", "role": "Warp ID and register assignment."}
+      ],
+      "tests": [
+        {"path": "test/Conversion/allocate_warp_groups.mlir", "symbol": "two_warp_specialize", "checks": "Padding to common topology."},
+        {"path": "test/Conversion/allocate_warp_groups.mlir", "symbol": "setmaxnreg/steal_from_default", "checks": "Register redistribution."},
+        {"path": "test/Conversion/allocate_warp_groups.mlir", "symbol": "assert_and_print_min_registers/instrumented_min_registers", "checks": "Safety minima."}
+      ],
+      "case_ids": ["register_allocation", "explicit_ws_micro_ir"],
+      "limitations": ["The source retains a FIXME about four-warp alignment for TMEM-related allocation; treat exact group placement as implementation detail."]
+    },
+    {
+      "id": "kp_ws_llvm_state_machine",
+      "title": "ConvertWarpSpecializeToLLVM lowers WS to a persistent worker state machine",
+      "evidence_kind": "fact",
+      "support_level": "core",
+      "summary": "Warp IDs split the default path from worker paths. Worker warp groups repeatedly read shared state, switch to a partition body, synchronize, and return to the switch loop until an exit state. Captures are packed through shared memory; relative warp IDs and NVVM setmaxregister operations are materialized.",
+      "sources": [
+        {"path": "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/ConvertWarpSpecializeToLLVM.cpp", "symbol": "NVIDIAWarpSpecializeBarrierHelper", "role": "NVIDIA barrier realization."},
+        {"path": "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/ConvertWarpSpecializeToLLVM.cpp", "symbol": "rewriteWarpSpecializeWarpIdsOnce", "role": "Partition-relative warp IDs."},
+        {"path": "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/ConvertWarpSpecializeToLLVM.cpp", "symbol": "createRegRealloc", "role": "SetMaxRegister insertion."},
+        {"path": "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/ConvertWarpSpecializeToLLVM.cpp", "symbol": "lowerWarpSpecialize", "role": "Default/worker split and target-specific lowering."},
+        {"path": "lib/Conversion/TritonGPUToLLVM/WarpSpecializeUtility.cpp", "symbol": "lowerWarpSpecializeCommon", "role": "Shared-state switch loop, capture storage, and partition CFG."},
+        {"path": "lib/Conversion/TritonGPUToLLVM/WarpSpecializeUtility.cpp", "symbol": "elideTrivialCaptures/rewritePartitionRegions", "role": "Rematerialization and region lowering."}
+      ],
+      "tests": [
+        {"path": "test/Conversion/warp_specialize_to_llvm.mlir", "symbol": "generate_switch_loop", "checks": "Persistent state dispatch."},
+        {"path": "test/Conversion/warp_specialize_to_llvm.mlir", "symbol": "pass_captures/partition_warpid_order/cfg", "checks": "Captures, relative IDs, and arbitrary control flow."},
+        {"path": "test/Conversion/warp_specialize_to_llvm.mlir", "symbol": "dynamic_register_reallocation", "checks": "NVVM register increase/decrease operations."}
+      ],
+      "case_ids": ["explicit_ws_micro_ir", "register_allocation"],
+      "limitations": ["PTX and especially SASS spellings are toolchain-dependent; the stable claim is the LLVM/NVVM control-flow and intrinsic structure."]
+    },
+    {
+      "id": "kp_named_barrier_budget",
+      "title": "WS consumes a finite named-barrier budget",
+      "evidence_kind": "fact",
+      "support_level": "core",
+      "summary": "The common lowering supports at most 16 named barriers. One is reserved for the default region and one for the switch loop, leaving at most 14 partition barriers; a single-warp participant can use warp sync instead of a CTA named barrier.",
+      "sources": [
+        {"path": "lib/Conversion/TritonGPUToLLVM/WarpSpecializeUtility.cpp", "symbol": "lowerWarpSpecializeBarriers/lowerBarrier", "role": "Barrier allocation and single-warp lowering."}
+      ],
+      "tests": [
+        {"path": "test/Conversion/warp_specialize_to_llvm.mlir", "symbol": "rewrite_barriers", "checks": "CTA barrier and bar.warp.sync forms."}
+      ],
+      "case_ids": ["explicit_ws_micro_ir"],
+      "limitations": ["Complex kernels can fail or require partition merging before reaching this limit; the budget is a hard implementation constraint, not a performance guideline."]
+    },
+    {
+      "id": "kp_proxy_tmem_fences",
+      "title": "Correctness requires separate proxy and TMEM dependency analyses",
+      "evidence_kind": "fact",
+      "support_level": "core",
+      "summary": "ProxyFenceInsertion orders writes/reads crossing generic, async, TMA, TMEM, CTA, and cluster proxies. TMemBarrierInsertion separately analyzes overlap among TMEM alloc/load/store/MMA/copy accesses. These passes run before LLVM lowering.",
+      "sources": [
+        {"path": "lib/Dialect/TritonNvidiaGPU/Transforms/ProxyFenceInsertion.cpp", "symbol": "isAsyncProxyWrite/isAsyncProxyRead/ProxyFenceAnalysis", "role": "Proxy visibility analysis."},
+        {"path": "lib/Dialect/TritonNvidiaGPU/Transforms/TMemBarrierInsertion.cpp", "symbol": "isWritingAlloc/isMMALikeOp/TMemBarrierAnalysis", "role": "TMEM overlap dependency analysis."},
+        {"path": "lib/Dialect/TritonNvidiaGPU/Transforms/FenceInsertion.cpp", "symbol": "FenceInsertionPass", "role": "Earlier NVIDIA TTGIR fence insertion."}
+      ],
+      "tests": [
+        {"path": "test/TritonGPU/proxy_fence_insertion.mlir", "symbol": "async, TMA, TMEM, cluster, and 2CTA fixtures", "checks": "Required proxy fence placement."},
+        {"path": "test/TritonNvidiaGPU/tmem_barrier_insertion.mlir", "symbol": "alloc/load/store/MMA/copy dependency fixtures", "checks": "Required TMEM barrier placement and non-overlap cases."}
+      ],
+      "case_ids": ["tmem_aref", "scaled_blockscale", "two_cta_cluster"],
+      "limitations": ["ARef barriers express producer-consumer ownership; proxy/TMEM passes solve additional memory-model hazards and are not interchangeable with ARef synchronization."]
+    },
+    {
+      "id": "kp_tcgen05",
+      "title": "Blackwell MMA lowers through TCGen05 and TMEM",
+      "evidence_kind": "fact",
+      "support_level": "core",
+      "summary": "MMAv5 conversion constructs TCGen05 instruction descriptors, emits ordinary or scaled MMA, and commits completion to an mbarrier. Accumulators and operand staging use TMEM allocation/load/store/copy operations lowered to tcgen05 forms.",
+      "sources": [
+        {"path": "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/DotOpToLLVM/MMAv5.cpp", "symbol": "createInstDescriptor/createGen5MMA/createMMACommit", "role": "Ordinary TCGen05 MMA and completion."},
+        {"path": "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/DotOpToLLVM/MMAv5.cpp", "symbol": "TCGen5MMAOpConversion/TCGen5CommitOpConversion", "role": "Dialect conversion patterns."},
+        {"path": "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/TensorMemoryToLLVM.cpp", "symbol": "TensorMemoryAllocOpConversion/TensorMemoryLoadOpConversion/TensorMemoryStoreOpConversion/TensorMemoryCopyOpConversion", "role": "TMEM instruction lowering."}
+      ],
+      "tests": [
+        {"path": "test/Conversion/tritongpu_to_llvm_blackwell.mlir", "symbol": "tc_gen5_mma", "checks": "tcgen05.mma and commit structure."},
+        {"path": "test/Conversion/tritongpu_to_llvm_blackwell.mlir", "symbol": "TMEM load/store/copy functions", "checks": "tcgen05.ld/st/cp/wait structure."},
+        {"path": "test/TritonNvidiaGPU/test_tensor_memory_allocation.mlir", "symbol": "alloc_warp_specialize", "checks": "TMEM allocation under WS and captures."}
+      ],
+      "case_ids": ["persistent_tcgen05_gemm", "tmem_aref"],
+      "limitations": ["TCGen05 is the compute substrate, not by itself evidence of automatic warp specialization; the IR must also contain the WS structure."]
+    },
+    {
+      "id": "kp_scaled_blockscale",
+      "title": "Scaled MMA/block-scale is wired into partitioning and TCGen05 lowering",
+      "evidence_kind": "fact",
+      "support_level": "experimental",
+      "summary": "TCGen5MMAScaledOp is a partition root, scale operands may arrive through TMA/TMEM, and MMAv5 conversion emits FP8/FP4 block-scale descriptors and TCGen05 block-scale variants.",
+      "sources": [
+        {"path": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp", "symbol": "initialDataValues", "role": "Recognizes TCGen5MMAScaledOp."},
+        {"path": "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/DotOpToLLVM/MMAv5.cpp", "symbol": "createScaleInstDescriptorFp8/createScaleInstDescriptorFp4/createScaledGen5MMA/convertScaledDot", "role": "Scale descriptor and scaled MMA lowering."},
+        {"path": "python/tutorials/10-block-scaled-matmul.py", "symbol": "block_scaled_matmul_kernel", "role": "Frontend tl.dot_scaled example, not an autoWS proof by itself."}
+      ],
+      "tests": [
+        {"path": "test/TritonGPU/partition-scheduling.mlir", "symbol": "scaled_mma_with_loads/scaled_mma_descriptor_scales", "checks": "Partition assignment with register/TMA scale sources."},
+        {"path": "test/NVWS/insert_aref.mlir", "symbol": "matmul_scaled_rhs_scales_tma", "checks": "Scale producer ARef."},
+        {"path": "test/Conversion/tritongpu_to_llvm_blackwell.mlir", "symbol": "tc_gen5_mma_block_scale", "checks": "tcgen05 block_scale.block16/block32 forms."}
+      ],
+      "case_ids": ["scaled_blockscale"],
+      "limitations": ["Focused tests cover selected layouts/types and descriptor scale paths; this is not evidence that every tl.dot_scaled combination auto-specializes."]
+    },
+    {
+      "id": "kp_two_cta_cluster",
+      "title": "Two-CTA MMAv5 adds cluster-scoped synchronization to WS",
+      "evidence_kind": "fact",
+      "support_level": "experimental",
+      "summary": "Cluster analysis identifies distributed multi-CTA and cross-CTA commit dependencies. A cluster mbarrier allocator reserves two 16-byte slots plus a counter; initialization and use alternate slot/parity via a modulo-4 state and make all warps participate through synthetic WS when necessary.",
+      "sources": [
+        {"path": "lib/Dialect/TritonNvidiaGPU/Transforms/ClusterBarrierInsertion.cpp", "symbol": "hasTCGen5CommitCrossCTA/isDistributedMultiCTAOp/requiresCrossCTAMBarrierInitSync/ClusterBarrierAnalysis", "role": "Cross-CTA dependency detection."},
+        {"path": "lib/Dialect/TritonNvidiaGPU/Transforms/ClusterBarrierMbarAllocator.cpp", "symbol": "runClusterBarrierMbarAllocator", "role": "Allocate two cluster mbarrier slots and module attributes."},
+        {"path": "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/ClusterOpsToLLVM.cpp", "symbol": "InitializeWSClusterBarriers/lowerClusterSyncForAllWarps", "role": "Initialization, modulo-4 parity protocol, and all-warp synchronization."},
+        {"path": "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/DotOpToLLVM/MMAv5.cpp", "symbol": "createGen5MMA", "role": "cta_group::2 MMA emission."},
+        {"path": "python/tutorials/gluon/14-multicta.py", "symbol": "2CTA tutorial kernels", "role": "Manual WS/multi-CTA teaching fixture."}
+      ],
+      "tests": [
+        {"path": "test/Conversion/tritongpu_to_llvm_blackwell.mlir", "symbol": "tc_gen5_mma_2ctas", "checks": "TCGen05 cta_group::2 structure."},
+        {"path": "test/TritonNvidiaGPU/cluster-barrier-mbar-allocator.mlir", "symbol": "allocator fixtures", "checks": "mbar offsets/count and two-slot allocation."},
+        {"path": "test/Conversion/tritonnvidiagpu_to_llvm.mlir", "symbol": "cluster_barrier_inside_warp_specialize variants", "checks": "Cluster barrier lowering, relaxed form, and slot reuse inside WS."}
+      ],
+      "case_ids": ["two_cta_cluster"],
+      "limitations": ["Compile-only evidence validates IR/PTX structure, not launch viability, cluster residency, or speedup on an SM103 device."]
+    },
+    {
+      "id": "kp_supported_workloads",
+      "title": "Repository coverage extends beyond one dense GEMM",
+      "evidence_kind": "fact",
+      "support_level": "tested",
+      "summary": "Focused and end-to-end fixtures cover TMA GEMM, mixed TMA plus ordinary async copy, nested persistent GEMM, attention forward/persistent attention, grouped GEMM, scaled MMA, TMEM ownership, registers, and two-CTA cluster lowering.",
+      "sources": [
+        {"path": "python/test/unit/language/test_warp_specialization.py", "symbol": "matmul_tma_ws_kernel/matmul_tma_persistent_ws_kernel/attention_persistent_inner_loop_kernel/grouped_matmul_tma_kernel", "role": "Python integration fixtures."},
+        {"path": "python/tutorials/09-persistent-matmul.py", "symbol": "TMA and persistent WS kernels", "role": "User-facing dense/persistent examples."},
+        {"path": "python/tutorials/gluon/08-warp-specialization.py", "symbol": "manual WS examples", "role": "Explicit Gluon partition model."}
+      ],
+      "tests": [
+        {"path": "test/TritonGPU/automatic-warp-specialization.mlir", "symbol": "matmul_tma_and_regular_load/grouped_matmul_tma_kernel", "checks": "Mixed load paths and grouped GEMM."},
+        {"path": "test/TritonGPU/partition-scheduling.mlir", "symbol": "attention_persistent_inner_loop_kernel", "checks": "Persistent attention partitioning."}
+      ],
+      "case_ids": ["mixed_tma_async_pipeline", "tma_auto_ws_gemm", "persistent_tcgen05_gemm", "persistent_attention", "grouped_gemm", "scaled_blockscale", "two_cta_cluster"],
+      "limitations": ["Breadth of fixtures is not the same as broad production maturity; many cases are focused MLIR tests with exact recognized shapes."]
+    },
+    {
+      "id": "kp_maturity_assessment",
+      "title": "Maturity is strongest in compiler structure, weaker in generality and performance proof",
+      "evidence_kind": "inference",
+      "support_level": "limited",
+      "summary": "The default Blackwell pipeline, focused tests, Python integration fixtures, and tutorials demonstrate a coherent end-to-end implementation. Eligibility is narrow, several policies are heuristic, TMEM/cluster/scaled paths contain explicit restrictions, and no SM103 runtime measurement is available in this study. The defensible rating is production-oriented compiler machinery with experimental automatic-policy breadth.",
+      "sources": [
+        {"path": "third_party/nvidia/backend/compiler.py", "symbol": "CUDABackend.make_ttgir/make_llir", "role": "Default pipeline integration."},
+        {"path": "python/triton/language/core.py", "symbol": "range warp_specialize documentation", "role": "Publicly stated simple-matmul limitation."},
+        {"path": "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/OptimizePartitionWarps.cpp", "symbol": "optimizePartitionNumWarps", "role": "Heuristic resource policy."},
+        {"path": "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertTmemAref.cpp", "symbol": "insertTmemAref", "role": "TMEM ownership restrictions."}
+      ],
+      "tests": [
+        {"path": "python/test/unit/language/test_warp_specialization.py", "symbol": "module", "checks": "End-to-end breadth and target guards."},
+        {"path": "test/TritonGPU/automatic-warp-specialization.mlir", "symbol": "module", "checks": "Positive and negative automatic-policy shapes."}
+      ],
+      "case_ids": ["ordinary_async_no_auto_ws", "tma_auto_ws_gemm", "persistent_attention", "two_cta_cluster"],
+      "limitations": ["Do not translate this assessment into a universal performance or stability guarantee.", "SM103 SASS and runtime measurements remain deferred until suitable hardware/tool access is available."]
+    }
+  ]
+}

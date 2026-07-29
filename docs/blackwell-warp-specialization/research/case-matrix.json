@@ -1,0 +1,570 @@
+{
+  "schema_version": "1.0.0",
+  "snapshot": {
+    "repository": "triton-lang/triton",
+    "commit": "bf64a5db1bc8aab0fd4f0076e60f6c367852e47d",
+    "target": "sm103",
+    "execution_scope": "compile-only",
+    "runtime_available": false,
+    "performance_claims_allowed": false
+  },
+  "purpose": "Case-driven verification plan for the Blackwell warp-specialization article. Every case names a frozen fixture and the strongest structural claim that can be made without SM103 execution.",
+  "vocabulary": {
+    "maturity": {
+      "compiler_core": "Default pipeline or final lowering with direct focused coverage.",
+      "integrated_shape": "Python or full-pipeline fixture demonstrates a recognized end-to-end input shape.",
+      "focused_shape": "A dedicated MLIR unit fixture proves one transformation boundary.",
+      "experimental_shape": "Implemented and tested but narrow, heuristic, or explicitly restricted.",
+      "negative_contract": "Test proves that a tempting input does not trigger automatic specialization."
+    },
+    "assertion": {
+      "required": "Must be checked and is supported by frozen source/test evidence.",
+      "forbidden": "Must be absent for this case.",
+      "advisory": "Useful observation only; exact spelling/count is toolchain-sensitive or not covered by the fixture.",
+      "not_applicable": "The selected fixture intentionally stops before this representation."
+    },
+    "evidence_kind": {
+      "fact": "Direct frozen source/FileCheck expectation.",
+      "inference": "Reasoned compile artifact expectation; never a runtime measurement."
+    }
+  },
+  "global_protocol": {
+    "target": "cuda:103",
+    "recommended_artifacts": [
+      "TTIR immediately after frontend code generation",
+      "TTGIR before automatic warp specialization",
+      "TTGIR after each AutomaticWarpSpecialization subpass where the fixture supports it",
+      "post-pipeline TTGIR after OptimizePartitionWarps",
+      "LLVM-dialect MLIR before and after ConvertWarpSpecializeToLLVM",
+      "LLVM IR, PTX, and cubin when the local CUDA toolchain accepts sm_103",
+      "nvdisasm output only as a non-blocking advisory artifact"
+    ],
+    "success_rule": "Compile success and required structural checks establish implementation behavior; they do not establish numerical correctness, occupancy, latency hiding, or speedup.",
+    "sass_rule": "No exact SASS mnemonic is a required assertion in compile-only mode. Record toolchain version and preserve output if available."
+  },
+  "cases": [
+    {
+      "id": "explicit_ws_micro_ir",
+      "title": "Explicit ttg.warp_specialize: default path plus persistent worker switch loop",
+      "category": "lowering micro-IR",
+      "objective": "Start from an already explicit WS op and isolate the physical execution model without involving automatic partition policy.",
+      "maturity": "compiler_core",
+      "support_level": "tested",
+      "evidence_kind": "fact",
+      "compile": {"target": "sm103", "runtime": false},
+      "source_fixtures": [
+        {"path": "python/test/unit/language/test_warp_specialization.py", "symbol": "test_warp_specialize_basic_ir", "role": "Small compile fixture containing explicit ttg.warp_specialize."},
+        {"path": "test/Conversion/warp_specialize_to_llvm.mlir", "symbol": "generate_switch_loop", "role": "Focused FileCheck for worker state dispatch."},
+        {"path": "test/Conversion/warp_specialize_to_llvm.mlir", "symbol": "pass_captures/partition_warpid_order/cfg", "role": "Capture transport, relative warp IDs, and control flow."}
+      ],
+      "pipeline_checkpoints": [
+        "AllocateWarpGroups pads worker topology and assigns warp IDs/register budgets.",
+        "SCF-to-CF and shared allocation make capture/state storage concrete.",
+        "ConvertWarpSpecializeToLLVM lowers the explicit op through lowerWarpSpecializeCommon."
+      ],
+      "expected": {
+        "passes": [
+          {"pattern": "add_allocate_warp_groups -> add_to_llvmir -> add_initialize_ws_cluster_barriers -> add_warp_specialize_to_llvm", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ir": [
+          {"pattern": "ttg.warp_specialize before final WS lowering", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "worker shared-state load, switch/branch dispatch, partition body, return-to-dispatch loop, and exit state after lowering", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "default and worker barrier synchronization; relative worker warp IDs", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ptx": [
+          {"pattern": "CTA named-barrier synchronization or bar.warp.sync for a one-warp participant, plus shared state loads/stores and branch targets", "assertion": "advisory", "evidence_kind": "inference"}
+        ],
+        "sass": [
+          {"pattern": "Control-flow loop and barrier instructions corresponding to the PTX state machine", "assertion": "advisory", "evidence_kind": "inference"}
+        ]
+      },
+      "maturity_note": "Final WS lowering is a compiler core. This case proves mechanism, not that autoWS can discover the partition.",
+      "limitations": ["No runtime overlap or efficiency conclusion is permitted."]
+    },
+    {
+      "id": "explicit_tmem_micro_ir",
+      "title": "Explicit WS with TMEM allocation/load/store",
+      "category": "lowering micro-IR",
+      "objective": "Show how an explicit worker partition interacts with Blackwell tensor memory and register allocation.",
+      "maturity": "compiler_core",
+      "support_level": "tested",
+      "evidence_kind": "fact",
+      "compile": {"target": "sm103", "runtime": false},
+      "source_fixtures": [
+        {"path": "python/test/unit/language/test_warp_specialization.py", "symbol": "test_warp_specialize_tmem_ir", "role": "Compile fixture for TMEM operations under WS."},
+        {"path": "test/TritonNvidiaGPU/test_tensor_memory_allocation.mlir", "symbol": "alloc_warp_specialize", "role": "Focused TMEM allocation/capture fixture."},
+        {"path": "test/Conversion/tritongpu_to_llvm_blackwell.mlir", "symbol": "tensor_memory_ld/tensor_memory_st/tmem_copy_2d", "role": "TCGen05 TMEM lowering reference."
+        }
+      ],
+      "pipeline_checkpoints": [
+        "AllocateWarpGroups before shared/TMEM allocation.",
+        "AllocateTensorMemory resolves TMEM columns.",
+        "TMemBarrierInsertion orders overlapping TMEM accesses.",
+        "TensorMemoryToLLVM creates tcgen05 load/store/copy/wait forms."
+      ],
+      "expected": {
+        "passes": [
+          {"pattern": "allocate_warp_groups -> allocate_tensor_memory -> tmem_barrier_insertion -> to_llvmir -> warp_specialize_to_llvm", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ir": [
+          {"pattern": "TMEM memdesc allocation with physical allocation metadata and explicit WS captures where needed", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "TensorMemoryLoad/Store/Copy converted to target intrinsics", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ptx": [
+          {"pattern": "tcgen05.ld, tcgen05.st, tcgen05.cp, and/or tcgen05.wait according to the selected fixture", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "sass": [
+          {"pattern": "TMEM load/store/copy instruction family corresponding to emitted PTX", "assertion": "advisory", "evidence_kind": "inference"}
+        ]
+      },
+      "maturity_note": "TMEM lowering and explicit WS are core; exact allocation shape remains target/layout dependent.",
+      "limitations": ["The micro-IR bypasses automatic partition discovery."]
+    },
+    {
+      "id": "ordinary_async_no_auto_ws",
+      "title": "Marked ordinary async loop without eligible descriptor memory remains unspecialized",
+      "category": "negative eligibility",
+      "objective": "Separate software pipelining from automatic warp specialization and prevent the false claim that the frontend flag guarantees WS.",
+      "maturity": "negative_contract",
+      "support_level": "limited",
+      "evidence_kind": "fact",
+      "compile": {"target": "sm103", "runtime": false},
+      "source_fixtures": [
+        {"path": "test/TritonGPU/automatic-warp-specialization.mlir", "symbol": "no_eligible_memory_ops", "role": "Loop carries the WS marker but lacks eligible descriptor load/store roots."},
+        {"path": "test/TritonGPU/partition-scheduling.mlir", "symbol": "no_partitions/mma_no_memory_ops", "role": "PartitionScheduling negative cases."}
+      ],
+      "pipeline_checkpoints": [
+        "PartitionScheduling::hasEligibleMemoryOps returns false.",
+        "AutomaticWarpSpecialization performs no structural WS materialization.",
+        "Ordinary schedule/pipeline passes may still transform async work independently."
+      ],
+      "expected": {
+        "passes": [
+          {"pattern": "AutomaticWarpSpecialization is invoked by the Blackwell pipeline but PartitionScheduling takes the no-eligible-memory path", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ir": [
+          {"pattern": "ttg.warp_specialize", "assertion": "forbidden", "evidence_kind": "fact"},
+          {"pattern": "No nvws.aref or nvws.warp_group generated solely by the marker", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ptx": [
+          {"pattern": "No WS worker state machine attributable to this loop", "assertion": "advisory", "evidence_kind": "inference"}
+        ],
+        "sass": [
+          {"pattern": "not applicable to the focused mid-level fixture", "assertion": "not_applicable", "evidence_kind": "fact"}
+        ]
+      },
+      "maturity_note": "A stable negative contract at this snapshot; it is deliberately not a supported autoWS workload.",
+      "limitations": ["A future eligibility expansion may change this behavior; the statement is snapshot-specific."]
+    },
+    {
+      "id": "mixed_tma_async_pipeline",
+      "title": "One TMA operand plus one ordinary async-copy operand",
+      "category": "automatic WS plus ordinary software pipeline",
+      "objective": "Prove that autoWS can specialize the eligible descriptor path while ordinary async copy remains in the surrounding pipeline.",
+      "maturity": "integrated_shape",
+      "support_level": "tested",
+      "evidence_kind": "fact",
+      "compile": {"target": "sm103", "runtime": false},
+      "source_fixtures": [
+        {"path": "test/TritonGPU/automatic-warp-specialization.mlir", "symbol": "matmul_tma_and_regular_load", "role": "Focused mixed-load automatic-WS fixture."},
+        {"path": "python/test/unit/language/test_warp_specialization.py", "symbol": "_maybe_tma_load/matmul_tma_ws_kernel/test_warp_specialize_tma_matmul", "role": "Parameterized end-to-end kernel with one TMA and one ordinary load."}
+      ],
+      "pipeline_checkpoints": [
+        "PartitionScheduling sees eligible descriptor memory and TCGen05 MMA roots.",
+        "InsertAref/LowerAref protocolize the TMA-produced shared tile.",
+        "Pipeline materializes the remaining ordinary async-copy stages after autoWS.",
+        "OptimizePartitionWarps sizes the resulting workers."
+      ],
+      "expected": {
+        "passes": [
+          {"pattern": "assign_latencies -> schedule_loops -> automatic_ws -> pipeline -> optimize_partition_warps", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ir": [
+          {"pattern": "ttg.warp_specialize together with both async_tma_copy_global_to_local-like and ttg.async_copy_global_to_local-like operations", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "ARef empty/full barrier protocol for the TMA operand", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ptx": [
+          {"pattern": "cp.async.bulk.tensor...mbarrier for TMA plus the target form of ordinary async copy, TCGen05 MMA, and WS barriers/state", "assertion": "advisory", "evidence_kind": "inference"}
+        ],
+        "sass": [
+          {"pattern": "Both tensor-map transfer and ordinary copy instruction families around tensor-core work", "assertion": "advisory", "evidence_kind": "inference"}
+        ]
+      },
+      "maturity_note": "This mixed shape has focused and Python integration coverage; performance overlap remains unmeasured.",
+      "limitations": ["Both-operands-ordinary is skipped/rejected as an autoWS Blackwell test shape."]
+    },
+    {
+      "id": "tma_auto_ws_gemm",
+      "title": "Canonical TMA autoWS GEMM",
+      "category": "end-to-end automatic WS",
+      "objective": "Use the smallest representative frontend case to follow the complete mechanism from tl.range to TCGen05/PTX.",
+      "maturity": "integrated_shape",
+      "support_level": "tested",
+      "evidence_kind": "fact",
+      "compile": {"target": "sm103", "runtime": false},
+      "source_fixtures": [
+        {"path": "python/test/unit/language/test_warp_specialization.py", "symbol": "matmul_tma_ws_kernel", "role": "Frontend kernel with warp_specialize=True."},
+        {"path": "python/test/unit/language/test_warp_specialization.py", "symbol": "test_warp_specialize_tma_matmul", "role": "Integration assertions for TCGen05, TMA, and ttg.warp_specialize."},
+        {"path": "test/TritonGPU/automatic-warp-specialization.mlir", "symbol": "matmul_change_desc_in_prologue/matmul_tma_acc_with_conditional_def_and_use", "role": "Control-flow and descriptor variants."}
+      ],
+      "pipeline_checkpoints": [
+        "CodeGenerator.visit_For emits tt.warp_specialize.",
+        "PartitionScheduling forms load and MMA/TMEM partitions.",
+        "InsertAref and InsertTmemAref remove cross-partition ownership edges.",
+        "LowerAref -> PartitionLoops -> LowerWarpGroup creates ttg.warp_specialize.",
+        "Pipeline/OptimizePartitionWarps and LLIR resource allocation finalize worker topology.",
+        "ConvertWarpSpecializeToLLVM and MMAv5/TMEM conversions form PTX-ready IR."
+      ],
+      "expected": {
+        "passes": [
+          {"pattern": "All AutomaticWarpSpecialization subpasses in source-map.json, followed by pipeline and OptimizePartitionWarps", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ir": [
+          {"pattern": "frontend scf.for {tt.warp_specialize}", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "post-autoWS ttg.warp_specialize with specialized TMA load and TCGen05 MMA/TMEM work", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "temporary ttg.partition_id/ttg.ws_tag-like internal attributes absent after cleanup", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ptx": [
+          {"pattern": "cp.async.bulk.tensor.*.shared::cta.global.mbarrier::complete_tx::bytes", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "mbarrier.init/arrive.expect_tx/try_wait.parity and tcgen05.mma plus tcgen05.commit", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "setmaxnreg increase/decrease spelling selected by the local PTX toolchain", "assertion": "advisory", "evidence_kind": "inference"}
+        ],
+        "sass": [
+          {"pattern": "Tensor-map transfer, tensor-core/TMEM, barrier, and possible USETMAXREG-class instructions", "assertion": "advisory", "evidence_kind": "inference"}
+        ]
+      },
+      "maturity_note": "This is the strongest automatic-WS reference shape at the snapshot.",
+      "limitations": ["Simple matmul loop shape is the documented frontend support center.", "Compile artifacts cannot prove latency hiding or throughput gain."]
+    },
+    {
+      "id": "persistent_tcgen05_gemm",
+      "title": "Nested persistent GEMM with TCGen05 and TMEM-clear hoisting",
+      "category": "persistent automatic WS",
+      "objective": "Trace the extra transformations required when one program persistently claims multiple output tiles.",
+      "maturity": "experimental_shape",
+      "support_level": "experimental",
+      "evidence_kind": "fact",
+      "compile": {"target": "sm103", "runtime": false},
+      "source_fixtures": [
+        {"path": "python/test/unit/language/test_warp_specialization.py", "symbol": "matmul_tma_persistent_ws_kernel/test_warp_specialize_tma_matmul_persistent", "role": "Persistent frontend/integration fixture."},
+        {"path": "test/TritonGPU/partition-scheduling.mlir", "symbol": "matmul_nested_persistent_ws_kernel", "role": "Nested-loop partition structure."},
+        {"path": "test/NVWS/hoist_tmem_store.mlir", "symbol": "matmul_nested_persistent_ws_kernel", "role": "Safe TMEM zero-store/alloc hoisting."}
+      ],
+      "pipeline_checkpoints": [
+        "FuseNestedLoops, LICM, accumulator-init optimization, and first TMEM hoist prepare the persistent nest.",
+        "NVWSHoistTmemStore checks useD=false and trip/execution safety.",
+        "AutoWS partitions the inner compute/load schedule without breaking outer persistent iteration.",
+        "Second HoistTmemAlloc allows movement through if regions after pipelining."
+      ],
+      "expected": {
+        "passes": [
+          {"pattern": "fuse_nested_loops -> LICM -> optimize_accumulator_init -> hoist_tmem_alloc(false) -> autoWS(NVWSHoistTmemStore included) -> pipeline -> hoist_tmem_alloc(true)", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ir": [
+          {"pattern": "Outer persistent tile loop retained with inner ttg.warp_specialize work", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "Redundant TMEM clear removed/folded only for the proven-safe pattern", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ptx": [
+          {"pattern": "Persistent outer control flow plus TMA mbarrier protocol, tcgen05.mma/commit, TMEM ops, and WS state machine", "assertion": "advisory", "evidence_kind": "inference"}
+        ],
+        "sass": [
+          {"pattern": "Repeated tile-claim/control sequence surrounding transfer and tensor-core groups", "assertion": "advisory", "evidence_kind": "inference"}
+        ]
+      },
+      "maturity_note": "Integrated test coverage exists, but persistent nesting adds recognized-shape and hoisting constraints.",
+      "limitations": ["A failed hoist match is expected to retain extra clear/synchronization cost.", "No persistent scheduling efficiency claim without runtime counters."]
+    },
+    {
+      "id": "shared_aref",
+      "title": "Shared/register ARef producer-consumer protocol",
+      "category": "automatic WS intermediate representation",
+      "objective": "Inspect the correctness bridge between a TMA-producing partition and one or more consumers before loop cloning.",
+      "maturity": "focused_shape",
+      "support_level": "tested",
+      "evidence_kind": "fact",
+      "compile": {"target": "sm103", "runtime": false},
+      "source_fixtures": [
+        {"path": "test/NVWS/insert_aref.mlir", "symbol": "warp_specialize_tma_matmul", "role": "Basic TMA-to-MMA ARef insertion."},
+        {"path": "test/NVWS/insert_aref.mlir", "symbol": "load_used_as_reg_and_smem/two_consumers/scalar_consumers/conditional_consumer", "role": "Value-kind and fan-out/control-flow variants."},
+        {"path": "test/NVWS/lower_aref.mlir", "symbol": "warp_specialize_tma_matmul/two_consumers/three_consumers", "role": "Concrete barrier lowering."}
+      ],
+      "pipeline_checkpoints": [
+        "InsertAref replaces raw cross-partition SSA with aref.create and put/get enter/exit.",
+        "SCCP/CSE simplify the protocol.",
+        "LowerAref creates empty/full barriers and multibuffered shared storage.",
+        "PartitionLoops can then clone partitions without unresolved SSA dependencies."
+      ],
+      "expected": {
+        "passes": [
+          {"pattern": "InsertAref -> verifier -> SCCP -> verifier -> CSE -> verifier -> LowerAref", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ir": [
+          {"pattern": "nvws.aref.create and matching put/get enter/exit after InsertAref", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "descriptor load converted to NVWS descriptor producer with transaction count", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "empty/full barrier waits and arrives plus numStages-controlled buffers after LowerAref", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ptx": [
+          {"pattern": "not applicable to InsertAref/LowerAref focused fixtures", "assertion": "not_applicable", "evidence_kind": "fact"}
+        ],
+        "sass": [
+          {"pattern": "not applicable", "assertion": "not_applicable", "evidence_kind": "fact"}
+        ]
+      },
+      "maturity_note": "Broad focused coverage across shared, register, scalar, multiple, and conditional consumers.",
+      "limitations": ["ARef op syntax is transient compiler IR, not a stable user interface."]
+    },
+    {
+      "id": "tmem_aref",
+      "title": "TMEM ARef ownership transfer between MMA and consumer partitions",
+      "category": "automatic WS intermediate representation",
+      "objective": "Follow asynchronous TCGen05 accumulator ownership without treating TMEM as ordinary shared memory.",
+      "maturity": "experimental_shape",
+      "support_level": "experimental",
+      "evidence_kind": "fact",
+      "compile": {"target": "sm103", "runtime": false},
+      "source_fixtures": [
+        {"path": "test/NVWS/aref-tmem-insertion.mlir", "symbol": "warp_specialize_tma_matmul", "role": "Basic MMAv5-to-TMEM-consumer hand-off."},
+        {"path": "test/NVWS/aref-tmem-insertion.mlir", "symbol": "store_mma_load/attention_forward", "role": "Multiple TMEM access shapes."},
+        {"path": "test/NVWS/aref-tmem-insertion.mlir", "symbol": "nested_loop_yes_double_buffer/nested_loop_no_double_buffer", "role": "Ping-pong/multibuffer decisions."},
+        {"path": "test/TritonNvidiaGPU/tmem_barrier_insertion.mlir", "symbol": "MMA/load/store/copy dependency fixtures", "role": "Post-ARef physical TMEM ordering."}
+      ],
+      "pipeline_checkpoints": [
+        "TmemAccessDag follows async tokens and overlapping accesses.",
+        "InsertTmemAref detects producer/consumer partitions and inserts ownership protocol for at most two groups.",
+        "LowerAref realizes barriers; TMemBarrierInsertion later handles physical overlap dependencies."
+      ],
+      "expected": {
+        "passes": [
+          {"pattern": "InsertTmemAref before LowerAref and PartitionLoops; TMemBarrierInsertion later in make_llir", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ir": [
+          {"pattern": "TMEM ARef tied to async-token access DAG and partition ownership changes", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "Ping-pong stage annotations only when double buffering is legal", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "Additional TMEM dependency barriers where physical accesses overlap", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ptx": [
+          {"pattern": "tcgen05.commit mbarrier plus tcgen05.ld/st/wait and corresponding mbarrier protocol in a full compilation", "assertion": "advisory", "evidence_kind": "inference"}
+        ],
+        "sass": [
+          {"pattern": "TMEM and barrier instruction groups", "assertion": "advisory", "evidence_kind": "inference"}
+        ]
+      },
+      "maturity_note": "Substantial focused coverage, but the ownership model is deliberately narrower than arbitrary multi-partition TMEM graphs.",
+      "limitations": ["At most two groups participate in the modeled ping-pong transfer.", "Scaled paths require dedicated cases and handling."]
+    },
+    {
+      "id": "register_allocation",
+      "title": "Worker warp-count optimization and dynamic register reallocation",
+      "category": "resource policy",
+      "objective": "Connect logical partitions to physical warp IDs, total warps, and setmaxnreg operations.",
+      "maturity": "compiler_core",
+      "support_level": "heuristic",
+      "evidence_kind": "fact",
+      "compile": {"target": "sm103", "runtime": false},
+      "source_fixtures": [
+        {"path": "test/TritonGPU/optimize-partition-warps.mlir", "symbol": "register_use_heuristic/tmem_min_4_warps/fits_after_shrink", "role": "Logical worker-size policy."},
+        {"path": "test/Conversion/allocate_warp_groups.mlir", "symbol": "setmaxnreg/steal_from_default/two_warp_specialize", "role": "Physical ID, padding, and register-budget assignment."},
+        {"path": "test/Conversion/warp_specialize_to_llvm.mlir", "symbol": "dynamic_register_reallocation/dynamic_register_reallocation_overalloc", "role": "NVVM SetMaxRegister lowering and over-allocation behavior."}
+      ],
+      "pipeline_checkpoints": [
+        "OptimizePartitionWarps halves candidates subject to TMA/TMEM minima and estimated tensor register use.",
+        "AllocateWarpGroups pads all WS sites to a common topology and sets ttg.total-num-warps.",
+        "ConvertWarpSpecializeToLLVM emits register increase/decrease at path transitions."
+      ],
+      "expected": {
+        "passes": [
+          {"pattern": "OptimizePartitionWarps in make_ttgir, then AllocateWarpGroups in make_llir, then ConvertWarpSpecializeToLLVM", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ir": [
+          {"pattern": "worker num_warps reduced only to operation-specific legal minimum", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "ttg.total-num-warps, physical warp IDs, requestedRegisters/actualRegisters, and module maxnreg", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "nvvm.setmaxregister increase/decrease unless disabled by instrumentation/safety path", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ptx": [
+          {"pattern": "setmaxnreg increase/decrease directive/instruction form supported by the selected PTX ISA", "assertion": "advisory", "evidence_kind": "inference"}
+        ],
+        "sass": [
+          {"pattern": "USETMAXREG-class instruction if ptxas preserves dynamic register reallocation", "assertion": "advisory", "evidence_kind": "inference"}
+        ]
+      },
+      "maturity_note": "Allocation/lowering are core; worker sizing and register demand are heuristics, not occupancy proofs.",
+      "limitations": ["65536-register budget and 2x tensor estimate are compiler policy constants at this snapshot.", "Do not infer achieved occupancy from requested register counts alone."]
+    },
+    {
+      "id": "scaled_blockscale",
+      "title": "Scaled/blocked-scale TCGen05 with TMA or TMEM scale operands",
+      "category": "specialized datatype path",
+      "objective": "Cover the extra partition roots and ownership edges introduced by FP8/FP4 scale tensors.",
+      "maturity": "experimental_shape",
+      "support_level": "experimental",
+      "evidence_kind": "fact",
+      "compile": {"target": "sm103", "runtime": false},
+      "source_fixtures": [
+        {"path": "test/TritonGPU/partition-scheduling.mlir", "symbol": "scaled_mma_with_loads/scaled_mma_descriptor_scales", "role": "Scaled MMA partition roots with register/TMA scales."},
+        {"path": "test/NVWS/insert_aref.mlir", "symbol": "matmul_scaled_rhs_scales_tma", "role": "Shared scale ARef."},
+        {"path": "test/NVWS/aref-tmem-insertion.mlir", "symbol": "matmul_scaled_rhs_scales_tma/load_scale_mma_user/nested_loop_yes_double_buffer_scaled", "role": "TMEM scale ownership and buffering."},
+        {"path": "test/Conversion/tritongpu_to_llvm_blackwell.mlir", "symbol": "tc_gen5_mma_block_scale/tc_gen5_mma_block_scale_fp4_a/tc_gen5_mma_block_scale_nvfp4/tc_gen5_mma_block_scale_mxfp4", "role": "PTX intrinsic structure."},
+        {"path": "python/tutorials/10-block-scaled-matmul.py", "symbol": "block_scaled_matmul_kernel", "role": "tl.dot_scaled frontend context, not by itself an autoWS assertion."}
+      ],
+      "pipeline_checkpoints": [
+        "PartitionScheduling recognizes TCGen5MMAScaledOp and scale-producing loads.",
+        "InsertAref/InsertTmemAref protocolize scale tensors according to storage and ownership.",
+        "MMAv5 conversion constructs FP8/FP4 scale descriptors and emits block-scale TCGen05 variants."
+      ],
+      "expected": {
+        "passes": [
+          {"pattern": "PartitionScheduling -> InsertAref -> InsertTmemAref -> LowerAref -> MMAv5 scaled conversion", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ir": [
+          {"pattern": "ttng.tc_gen5_mma_scaled as a data partition root", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "Separate scale operand ARef/TMEM flow where the scale producer crosses a partition", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ptx": [
+          {"pattern": "tcgen05.mma...block_scale.block16 or block_scale.block32 with FP8/FP4 descriptor encoding", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "TMA/mbarrier or TMEM load path for scales according to fixture", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "sass": [
+          {"pattern": "Scaled tensor-core and scale-transfer instruction groups", "assertion": "advisory", "evidence_kind": "inference"}
+        ]
+      },
+      "maturity_note": "Several focused variants exist, but support is a matrix of exact types/layouts rather than a universal dot_scaled guarantee.",
+      "limitations": ["Frontend tutorial coverage and autoWS coverage must not be conflated.", "Exact FP4/FP8 layout legality remains case-specific."]
+    },
+    {
+      "id": "two_cta_cluster",
+      "title": "2CTA TCGen05 with cluster barriers inside WS",
+      "category": "multi-CTA synchronization",
+      "objective": "Expose the extra cross-CTA correctness machinery layered over ordinary WS barriers.",
+      "maturity": "experimental_shape",
+      "support_level": "experimental",
+      "evidence_kind": "fact",
+      "compile": {"target": "sm103", "runtime": false, "num_ctas": 2},
+      "source_fixtures": [
+        {"path": "test/Conversion/tritongpu_to_llvm_blackwell.mlir", "symbol": "tc_gen5_mma_2ctas/tmem_copy_2d_2cta", "role": "Two-CTA TCGen05/TMEM PTX structure."},
+        {"path": "test/TritonNvidiaGPU/cluster-barrier-mbar-allocator.mlir", "symbol": "allocator fixtures", "role": "Two-slot cluster mbarrier allocation."},
+        {"path": "test/Conversion/tritonnvidiagpu_to_llvm.mlir", "symbol": "cluster_barrier_inside_warp_specialize/relaxed_cluster_barrier_inside_warp_specialize/cluster_barrier_inside_warp_specialize_reuses_slots", "role": "Cluster synchronization within WS."},
+        {"path": "python/tutorials/gluon/14-multicta.py", "symbol": "multi-CTA manual WS kernels", "role": "Readable high-level fixture."
+        }
+      ],
+      "pipeline_checkpoints": [
+        "PlanCTA and CheckMatmulTwoCTA establish the multi-CTA shape.",
+        "ClusterBarrierAnalysis inserts cross-CTA synchronization and init synchronization.",
+        "ClusterBarrierMbarAllocator reserves two 16-byte slots and records offsets/count.",
+        "InitializeWSClusterBarriers initializes both slots and modulo-4 slot/parity state for all warps."
+      ],
+      "expected": {
+        "passes": [
+          {"pattern": "check_matmul_two_cta -> proxy_fence_insertion -> to_llvmir(cluster insertion/init sync/mbar allocation) -> initialize_ws_cluster_barriers -> warp_specialize_to_llvm", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ir": [
+          {"pattern": "ttg.mbar_offset and ttg.ws_cluster_barrier_count allocation metadata", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "Two cluster-shared mbarrier slots, counter, low-bit slot selection, high-bit parity selection, and all-warp cluster synchronization", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ptx": [
+          {"pattern": "tcgen05.mma.cta_group::2 and/or tcgen05.cp cta_group::2", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "cluster.arrive/cluster.wait and mbarrier operations in shared::cluster address space", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "sass": [
+          {"pattern": "Cluster barrier and 2CTA tensor-core/TMEM instruction families", "assertion": "advisory", "evidence_kind": "inference"}
+        ]
+      },
+      "maturity_note": "Focused compiler coverage is strong, but launch/runtime behavior and benefit remain hardware-dependent and untested here.",
+      "limitations": ["No claim about cluster residency, scheduling fairness, or performance on SM103.", "Exact cluster/PTX spellings depend on PTX ISA/toolchain version."]
+    },
+    {
+      "id": "persistent_attention",
+      "title": "Persistent attention inner loop with multiple TMA/TMEM flows",
+      "category": "complex automatic WS workload",
+      "objective": "Stress partition propagation, multiple descriptors, conditional dataflow, TMEM ownership, and persistent outer scheduling beyond dense GEMM.",
+      "maturity": "experimental_shape",
+      "support_level": "experimental",
+      "evidence_kind": "fact",
+      "compile": {"target": "sm103", "runtime": false},
+      "source_fixtures": [
+        {"path": "python/test/unit/language/test_warp_specialization.py", "symbol": "attention_persistent_inner_loop_kernel/test_warp_specialize_attention_persistent_forward", "role": "Persistent Python integration fixture."},
+        {"path": "test/TritonGPU/partition-scheduling.mlir", "symbol": "attention_persistent_inner_loop_kernel", "role": "Partition assignment reference."},
+        {"path": "test/NVWS/aref-tmem-insertion.mlir", "symbol": "attention_forward", "role": "TMEM ownership dataflow."},
+        {"path": "test/NVWS/lower_aref.mlir", "symbol": "attention_forward", "role": "Final ARef barrier protocol."
+        }
+      ],
+      "pipeline_checkpoints": [
+        "PartitionScheduling merges/duplicates graph nodes across QK, softmax state, PV, and descriptor flows.",
+        "InsertAref handles multiple TMA-produced shared values and scalar/control dependencies.",
+        "InsertTmemAref tracks MMAv5 accumulator ownership across QK/PV phases.",
+        "Persistent loop scheduling and descriptor multibuffering occur after WS formation."
+      ],
+      "expected": {
+        "passes": [
+          {"pattern": "Complete AutomaticWarpSpecialization composite including both ARef passes, then pipeline and partition-warp optimization", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ir": [
+          {"pattern": "Multiple data partitions and ttg.warp_specialize nested under persistent work distribution", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "Distinct shared and TMEM ownership protocols for Q/K/V/accumulator flows", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "Temporary partition tags removed after the composite pass", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ptx": [
+          {"pattern": "Multiple TMA bulk tensor transfers, mbarrier stage protocols, TCGen05 MMA/commit/TMEM operations, and WS worker dispatch", "assertion": "advisory", "evidence_kind": "inference"}
+        ],
+        "sass": [
+          {"pattern": "Interleaved transfer, tensor-core/TMEM, scalar softmax, and barrier/control instruction regions", "assertion": "advisory", "evidence_kind": "inference"}
+        ]
+      },
+      "maturity_note": "Realistic integration and focused pass fixtures exist; the shape is materially more fragile than canonical GEMM.",
+      "limitations": ["Compile success does not validate numerical softmax behavior or the effectiveness of QK/PV overlap.", "Exact partition membership is heuristic and may evolve."]
+    },
+    {
+      "id": "grouped_gemm",
+      "title": "Grouped TMA GEMM with dynamic per-group descriptors",
+      "category": "complex automatic WS workload",
+      "objective": "Verify autoWS when descriptor selection and dimensions vary across a persistent group loop.",
+      "maturity": "integrated_shape",
+      "support_level": "tested",
+      "evidence_kind": "fact",
+      "compile": {"target": "sm103", "runtime": false},
+      "source_fixtures": [
+        {"path": "python/test/unit/language/test_warp_specialization.py", "symbol": "grouped_matmul_tma_kernel/test_grouped_gemm", "role": "Python integration fixture and ttg.warp_specialize assertion."},
+        {"path": "test/TritonGPU/automatic-warp-specialization.mlir", "symbol": "grouped_matmul_tma_kernel", "role": "Frozen post-front-end automatic-WS fixture."}
+      ],
+      "pipeline_checkpoints": [
+        "Loop/prologue descriptor values survive partition scheduling and control-flow propagation.",
+        "Automatic WS forms load/compute partitions inside grouped work distribution.",
+        "multiBufferTMADescriptors creates numStages + 1 buffers for changing descriptors.",
+        "Internal partition/scheduling attributes are cleaned after reconstruction."
+      ],
+      "expected": {
+        "passes": [
+          {"pattern": "PartitionScheduling -> ARef/TMEM-ARef -> LowerAref -> PartitionLoops -> LowerWarpGroup -> ScheduleLoops -> multiBufferTMADescriptors -> cleanup", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ir": [
+          {"pattern": "ttg.warp_specialize within grouped/persistent control flow", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "Dynamic descriptor selection preserved and descriptor storage multibuffered", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "No leaked internal partition attributes", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ptx": [
+          {"pattern": "Per-group address/descriptor control plus TMA mbarrier transfers, TCGen05 compute, and WS state", "assertion": "advisory", "evidence_kind": "inference"}
+        ],
+        "sass": [
+          {"pattern": "Dynamic group-control instruction region surrounding TMA/tensor-core worker paths", "assertion": "advisory", "evidence_kind": "inference"}
+        ]
+      },
+      "maturity_note": "Both focused and Python integration fixtures exist; descriptor dynamism makes it a stronger breadth case than fixed GEMM.",
+      "limitations": ["No load-balance, cache behavior, or grouped-work scheduling efficiency claim is made."]
+    }
+  ],
+  "deferred_runtime_work": {
+    "reason": "No SM103 Blackwell device is available in the current environment and the user requested disruptive runtime setup be deferred.",
+    "record_only": [
+      "Run numerical correctness against a non-WS reference for GEMM, persistent GEMM, attention, and grouped GEMM.",
+      "Compare WS on/off latency distributions after controlling num_warps, num_stages, input shape, clock state, and warmup.",
+      "Collect achieved occupancy, registers/thread, shared memory, active warps, tensor-pipe utilization, TMA throughput, barrier stalls, scoreboard stalls, and eligible-warps-per-cycle.",
+      "Disassemble cubins with the exact CUDA toolkit used for PTX assembly and correlate SASS regions with the LLVM/PTX state machine.",
+      "Test 2CTA cluster launch/residency separately; do not mix its results into one-CTA WS conclusions."
+    ],
+    "prohibited_until_measured": [
+      "WS is faster.",
+      "WS improves occupancy.",
+      "A particular partition count is optimal.",
+      "Results from a different target prove SM103 behavior."
+    ]
+  }
+}

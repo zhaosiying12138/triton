@@ -1,0 +1,1158 @@
+{
+  "schema_version": 1,
+  "frozen_revision": "bf64a5db1bc8aab0fd4f0076e60f6c367852e47d",
+  "scope": "SM103 compile-only evidence for Triton Blackwell automatic warp specialization; no runtime or performance claims",
+  "sources": [
+    {
+      "id": "GH-ISSUE-4308",
+      "title": "Is it possible for Triton to automatically generate warp-specialized FlashAttention-3 style kernels?",
+      "url": "https://github.com/triton-lang/triton/issues/4308",
+      "source_type": "github_issue",
+      "status": "open as of 2026-07-30",
+      "accessed_at": "2026-07-30",
+      "topics": ["motivation", "FlashAttention", "software-pipelining", "AutomaticWS"],
+      "distilled_claims": [
+        "The motivating problem was whether compiler scheduling could overlap TMA, tensor-core work, and attention-side computation without requiring a hand-written role split.",
+        "The discussion records the transition from extending software pipelining toward explicit computation partitions and automatic warp specialization."
+      ],
+      "current_source_symbols": [
+        "third_party/nvidia/backend/compiler.py::CUDABackend.make_ttgir",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/AutomaticWarpSpecialization.cpp::AutomaticWarpSpecialization::runOnOperation"
+      ],
+      "current_tests": [
+        "test/TritonGPU/automatic-warp-specialization.mlir::attention_forward",
+        "test/TritonGPU/partition-scheduling.mlir::attention_forward"
+      ],
+      "used_in_article": ["origin-and-design-pressure", "attention-case-roadmap"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact_with_scoped_inference",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-5917",
+      "title": "Implement ttg.warp_specialize op",
+      "url": "https://github.com/triton-lang/triton/pull/5917",
+      "source_type": "github_pr",
+      "status": "merged 2025-02-14",
+      "accessed_at": "2026-07-30",
+      "topics": ["TTGIR", "warp-specialize-op", "default-partition", "worker-partitions"],
+      "distilled_claims": [
+        "The TTGIR operation models a default region and asynchronously executed worker partition regions with independent warp counts.",
+        "The current IR keeps worker regions in an isolated partitions container and returns values only through the default region."
+      ],
+      "current_source_symbols": [
+        "include/triton/Dialect/TritonGPU/IR/TritonGPUOps.td::WarpSpecializeOp",
+        "include/triton/Dialect/TritonGPU/IR/TritonGPUOps.td::WarpSpecializePartitionsOp",
+        "lib/Dialect/TritonGPU/IR/Ops.cpp::WarpSpecializeOp::verify"
+      ],
+      "current_tests": [
+        "test/TritonGPU/ops.mlir",
+        "test/Conversion/warp_specialize_to_llvm.mlir::rewrite_barriers"
+      ],
+      "used_in_article": ["ttgir-contract", "default-worker-abi"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-5968",
+      "title": "Codegen for ttg.warp_specialize",
+      "url": "https://github.com/triton-lang/triton/pull/5968",
+      "source_type": "github_pr",
+      "status": "merged 2025-02-27",
+      "accessed_at": "2026-07-30",
+      "topics": ["LLVM-lowering", "warp-dispatch", "barriers", "worker-loop"],
+      "distilled_claims": [
+        "Lowering materializes a warp-id dispatch that separates default warps from worker warps and repeatedly dispatches worker partitions.",
+        "Warp-group barriers and partition state are part of the generated control protocol, not merely scheduling annotations."
+      ],
+      "current_source_symbols": [
+        "lib/Conversion/TritonGPUToLLVM/WarpSpecializeUtility.cpp::lowerWarpSpecializeCommon",
+        "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/ConvertWarpSpecializeToLLVM.cpp::lowerWarpSpecialize"
+      ],
+      "current_tests": [
+        "test/Conversion/warp_specialize_to_llvm.mlir::rewrite_barriers",
+        "test/Conversion/warp_specialize_to_llvm.mlir::warpid_warp_specialize"
+      ],
+      "used_in_article": ["llvm-materialization", "worker-dispatch-state-machine"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-6175",
+      "title": "Add basic loop partition infra and an SSA dependency rewrite pass",
+      "url": "https://github.com/triton-lang/triton/pull/6175",
+      "source_type": "github_pr",
+      "status": "merged 2025-03-18",
+      "accessed_at": "2026-07-30",
+      "topics": ["partition-graph", "SSA", "shared-memory", "verification"],
+      "distilled_claims": [
+        "AutomaticWS began as a dataflow transformation: operations receive partition assignments and cross-partition SSA dependencies require an explicit communication representation.",
+        "A schedule verifier is necessary because later rewrites must preserve partition locality and dependency invariants."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/Partition.cpp::PartitionSet::fromLoop",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/Partition.cpp::verifyPartitionedLoop",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp::buildGraph"
+      ],
+      "current_tests": [
+        "test/TritonGPU/partition-verifier-locality.mlir",
+        "test/TritonGPU/partition-scheduling.mlir::attention_forward"
+      ],
+      "used_in_article": ["partition-dataflow-model", "cross-partition-ssa"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-6186",
+      "title": "Implement loop partitioning pass into ttg.warp_specialize",
+      "url": "https://github.com/triton-lang/triton/pull/6186",
+      "source_type": "github_pr",
+      "status": "merged 2025-03-18",
+      "accessed_at": "2026-07-30",
+      "topics": ["PartitionLoops", "control-flow-cloning", "captures", "materialization"],
+      "distilled_claims": [
+        "PartitionLoops turns partition attributes into real default and worker regions only after communication dependencies have been made explicit.",
+        "Loop-carried values, captures, and outputs need distinct handling when structured control flow is cloned into partition regions."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionLoops.cpp::partitionLoop",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionLoops.cpp::classifyLoopVars",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionLoops.cpp::cloneOpsInBlock"
+      ],
+      "current_tests": [
+        "test/TritonGPU/partition-loops.mlir::multiple_partitions",
+        "test/TritonGPU/partition-loops.mlir::partition_outputs",
+        "test/TritonGPU/partition-loops.mlir::tensor_captures_over_smem"
+      ],
+      "used_in_article": ["partition-materialization", "loop-value-categories"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-6217",
+      "title": "Automatic warp specialization for simple matmul loops",
+      "url": "https://github.com/triton-lang/triton/pull/6217",
+      "source_type": "github_pr",
+      "status": "merged 2025-03-18",
+      "accessed_at": "2026-07-30",
+      "topics": ["AutomaticWS", "TMA", "MMAv5", "simple-matmul"],
+      "distilled_claims": [
+        "The initial Blackwell AutomaticWS path recognized a descriptor-load-to-MMAv5 loop and separated memory and MMA work into asynchronous partitions.",
+        "This establishes the canonical positive case but does not imply that every loop carrying warp_specialize intent is eligible."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/AutomaticWarpSpecialization.cpp::AutomaticWarpSpecialization::runOnOperation",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionSchedulingUtility.cpp::getNodeFlags"
+      ],
+      "current_tests": [
+        "test/TritonGPU/automatic-warp-specialization.mlir::matmul_change_desc_in_prologue",
+        "test/NVWS/insert_aref.mlir::warp_specialize_tma_matmul"
+      ],
+      "used_in_article": ["case-1-simple-tma-matmul", "support-baseline"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-6239",
+      "title": "Support persistent matmul in warp specialization",
+      "url": "https://github.com/triton-lang/triton/pull/6239",
+      "source_type": "github_pr",
+      "status": "merged 2025-03-26",
+      "accessed_at": "2026-07-30",
+      "topics": ["persistent-matmul", "nested-loops", "loop-carried-state"],
+      "distilled_claims": [
+        "Persistent matmul extends the positive case from a single K loop to a scheduler-controlled outer tile loop with loop-carried state.",
+        "It is an important bridge between simple matmul and later nested attention/grouped-GEMM support."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp::propagatePartitions",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/HoistTmemStore.cpp::hoistTmemAlloc"
+      ],
+      "current_tests": [
+        "test/TritonGPU/partition-scheduling.mlir::matmul_nested_persistent_ws_kernel",
+        "test/NVWS/assign_stage_phase.mlir::matmul_tma_persistent_ws_kernel"
+      ],
+      "used_in_article": ["case-persistent-matmul", "nested-loop-progression"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact_with_scoped_inference",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-6288",
+      "title": "Add an Nvidia Warp Specialization Dialect with an Async Reference Type and Operations",
+      "url": "https://github.com/triton-lang/triton/pull/6288",
+      "source_type": "github_pr",
+      "status": "merged 2025-03-25",
+      "accessed_at": "2026-07-30",
+      "topics": ["NVWS", "ARef", "producer-consumer", "channels"],
+      "distilled_claims": [
+        "ARef introduces an IR-level producer-consumer reference whose put/get protocol can later lower to storage plus synchronization.",
+        "This decouples partition analysis from immediate commitment to raw shared-memory and barrier instructions."
+      ],
+      "current_source_symbols": [
+        "third_party/nvidia/include/Dialect/NVWS/IR/NVWSOps.td::ArefCreateOp",
+        "third_party/nvidia/include/Dialect/NVWS/IR/NVWSOps.td::ArefPutEnterOp",
+        "third_party/nvidia/include/Dialect/NVWS/IR/NVWSOps.td::ArefGetEnterOp"
+      ],
+      "current_tests": [
+        "test/NVWS/ops.mlir::aref_create_single",
+        "test/NVWS/ops.mlir::aref_get",
+        "test/NVWS/ops.mlir::aref_put"
+      ],
+      "used_in_article": ["aref-abstraction", "channel-lifecycle"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-6323",
+      "title": "Add a separate pass for optimizing partition num warps",
+      "url": "https://github.com/triton-lang/triton/pull/6323",
+      "source_type": "github_pr",
+      "status": "merged 2025-03-28",
+      "accessed_at": "2026-07-30",
+      "topics": ["OptimizePartitionWarps", "warp-count", "layout-remapping", "TMEM"],
+      "distilled_claims": [
+        "Logical partition warp counts are optimized after partition materialization, with tensor-layout rewriting used to preserve semantics.",
+        "TMEM operations impose a four-warp floor even when an MMA-issuer partition can otherwise be reduced further."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/OptimizePartitionWarps.cpp::optimizePartitionNumWarps",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/OptimizePartitionWarps.cpp::relayoutWarps"
+      ],
+      "current_tests": [
+        "test/TritonGPU/optimize-partition-warps.mlir::small_tensor_computation",
+        "test/TritonGPU/optimize-partition-warps.mlir::tmem_min_4_warps"
+      ],
+      "used_in_article": ["logical-warp-count", "tmem-four-warp-requirement"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-6407",
+      "title": "Control dynamic register allocation from Triton",
+      "url": "https://github.com/triton-lang/triton/pull/6407",
+      "source_type": "github_pr",
+      "status": "merged 2025-04-04",
+      "accessed_at": "2026-07-30",
+      "topics": ["register-allocation", "setmaxnreg", "requested-registers", "heuristics"],
+      "distilled_claims": [
+        "Partition register requests are compiler estimates used to drive dynamic register reallocation; they are not exact register proofs at TTGIR level.",
+        "The IR carries requested and actual register budgets into later warp-group allocation and LLVM lowering."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/OptimizePartitionWarps.cpp::getTensorNumI32Regs",
+        "lib/Conversion/TritonGPUToLLVM/AllocateWarpGroups.cpp::AllocateWarpGroups::runOnOperation"
+      ],
+      "current_tests": [
+        "test/TritonGPU/optimize-partition-warps.mlir::register_use_heuristic",
+        "test/Conversion/allocate_warp_groups.mlir::setmaxnreg"
+      ],
+      "used_in_article": ["register-budget-estimation", "requested-vs-actual-registers"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-6694",
+      "title": "Improve how dynamic register reallocation is implemented",
+      "url": "https://github.com/triton-lang/triton/pull/6694",
+      "source_type": "github_pr",
+      "status": "merged 2025-05-05",
+      "accessed_at": "2026-07-30",
+      "topics": ["setmaxnreg", "warp-group-padding", "register-handoff", "ptx-lowering"],
+      "distilled_claims": [
+        "All warp-specialized sites are padded to a program-wide maximum number of physical warp groups so inactive warps are present to surrender registers.",
+        "Register budgets are changed at default/worker partition boundaries, making register ownership a temporal protocol rather than a static partition."
+      ],
+      "current_source_symbols": [
+        "lib/Conversion/TritonGPUToLLVM/AllocateWarpGroups.cpp::padToMaxWarpGroups",
+        "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/ConvertWarpSpecializeToLLVM.cpp::createRegRealloc",
+        "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/ConvertWarpSpecializeToLLVM.cpp::lowerWarpSpecialize"
+      ],
+      "current_tests": [
+        "test/Conversion/allocate_warp_groups.mlir::steal_from_default",
+        "test/Conversion/warp_specialize_to_llvm.mlir::dynamic_register_reallocation"
+      ],
+      "used_in_article": ["physical-warpgroup-allocation", "register-handoff-protocol"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-6887",
+      "title": "Merge warp specialization and pipeliner scheduling",
+      "url": "https://github.com/triton-lang/triton/pull/6887",
+      "source_type": "github_pr",
+      "status": "merged 2025-05-22",
+      "accessed_at": "2026-07-30",
+      "topics": ["software-pipelining", "stage-cluster", "pass-order", "AutomaticWS"],
+      "distilled_claims": [
+        "Loop stage/cluster decisions are established before AutomaticWS, consumed while forming communication, and each resulting loop is scheduled again afterward.",
+        "Warp specialization and software pipelining are cooperating transformations rather than alternatives."
+      ],
+      "current_source_symbols": [
+        "third_party/nvidia/backend/compiler.py::CUDABackend.make_ttgir",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/AutomaticWarpSpecialization.cpp::AutomaticWarpSpecialization::runOnOperation",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/AssignStagePhase.cpp::assignStagePhase"
+      ],
+      "current_tests": [
+        "test/TritonGPU/automatic-warp-specialization.mlir::PIPELINE checks",
+        "test/NVWS/assign_stage_phase.mlir::assign_stage_buffer"
+      ],
+      "used_in_article": ["pass-pipeline", "ws-versus-swp"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-7278",
+      "title": "Fix WAR async+generic proxy for warp specialization",
+      "url": "https://github.com/triton-lang/triton/pull/7278",
+      "source_type": "github_pr",
+      "status": "merged 2025-06-25",
+      "accessed_at": "2026-07-30",
+      "topics": ["proxy-fence", "WAR", "generic-proxy", "async-proxy"],
+      "distilled_claims": [
+        "Splitting one loop across partitions can create a new async/generic proxy ordering obligation even when the unspecialized loop was ordered correctly.",
+        "Barrier completion and proxy visibility are separate correctness dimensions."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonNvidiaGPU/Transforms/ProxyFenceInsertion.cpp::ProxyFenceAnalysis::insertFence",
+        "lib/Dialect/TritonNvidiaGPU/Transforms/ProxyFenceInsertion.cpp::ProxyFenceAnalysis::update"
+      ],
+      "current_tests": [
+        "test/TritonGPU/fence-inserstion.mlir::mma_inside_warp_specialize",
+        "test/TritonGPU/fence-inserstion.mlir::matmul_like_fence_mma_v5"
+      ],
+      "used_in_article": ["barrier-versus-fence", "partition-created-ordering"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-7312",
+      "title": "Improved partition scheduling pass",
+      "url": "https://github.com/triton-lang/triton/pull/7312",
+      "source_type": "github_pr",
+      "status": "merged 2026-01-16",
+      "accessed_at": "2026-07-30",
+      "topics": ["PartitionScheduling", "dataflow-graph", "heuristics", "loop-locality"],
+      "distilled_claims": [
+        "The current scheduler builds a hierarchical dataflow graph, creates initial data partitions, repeatedly merges them using ordered heuristics and constraints, then propagates assignments to supporting operations.",
+        "Maintainer review frames AutomaticWS as a loop-local optimization and the partitioner as a heuristic scheduler, not a globally optimal task solver."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp::buildGraph",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp::mergePartitions",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp::propagatePartitions"
+      ],
+      "current_tests": [
+        "test/TritonGPU/partition-scheduling.mlir::mma_no_memory_ops",
+        "test/TritonGPU/partition-scheduling.mlir::optimize_broadcast",
+        "test/TritonGPU/partition-scheduling.mlir::no_partitions"
+      ],
+      "used_in_article": ["partition-scheduler-algorithm", "maturity-heuristic-nature"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-7415",
+      "title": "Reimplement PartitionLoops pass supporting general control flow",
+      "url": "https://github.com/triton-lang/triton/pull/7415",
+      "source_type": "github_pr",
+      "status": "merged 2025-07-17",
+      "accessed_at": "2026-07-30",
+      "topics": ["PartitionLoops", "scf.for", "scf.if", "structured-control-flow"],
+      "distilled_claims": [
+        "Partition materialization recursively clones structured control flow and remaps operands/results separately for each partition.",
+        "Support for general control-flow shape is distinct from the scheduler deciding that a particular loop is eligible and profitable."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionLoops.cpp::cloneForOp",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionLoops.cpp::cloneIfOp",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionLoops.cpp::cloneReduceOp"
+      ],
+      "current_tests": [
+        "test/TritonGPU/partition-loops.mlir::if_stmt_split",
+        "test/TritonGPU/partition-loops.mlir::multiple_partitions_two_loops"
+      ],
+      "used_in_article": ["structured-control-flow-reconstruction", "support-vs-eligibility"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-7479",
+      "title": "Update aref ops and lower_aref pass",
+      "url": "https://github.com/triton-lang/triton/pull/7479",
+      "source_type": "github_pr",
+      "status": "merged 2025-07-16",
+      "accessed_at": "2026-07-30",
+      "topics": ["ARef", "buffer-index", "mbarrier-phase", "LowerAref"],
+      "distilled_claims": [
+        "ARef indexing is threaded through control flow and determines both the selected buffer stage and mbarrier phase.",
+        "LowerAref converts logical channel events into buffer allocation, wait, arrive, and asynchronous-operation tracking."
+      ],
+      "current_source_symbols": [
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp::ArefValue",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp::createBarriers",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp::multiBufferAref"
+      ],
+      "current_tests": [
+        "test/NVWS/lower_aref.mlir::warp_specialize_tma_matmul",
+        "test/NVWS/assign_stage_phase.mlir::aref_lowering"
+      ],
+      "used_in_article": ["aref-index-phase", "aref-lowering"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-7645",
+      "title": "Update RewritePartitionDependencies to insert arefs",
+      "url": "https://github.com/triton-lang/triton/pull/7645",
+      "source_type": "github_pr",
+      "status": "merged 2025-07-24",
+      "accessed_at": "2026-07-30",
+      "topics": ["InsertAref", "cross-partition-SSA", "barrier-lifecycle", "invalidation"],
+      "distilled_claims": [
+        "Cross-partition produced values are rewritten into ARef put/get events before code partitioning.",
+        "Barrier-backed storage must be invalidated before the same shared-memory bytes are reused for a later barrier lifetime."
+      ],
+      "current_source_symbols": [
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp::insertArefs",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp::createArefPut",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp::createArefGet"
+      ],
+      "current_tests": [
+        "test/NVWS/insert_aref.mlir::two_consumers",
+        "test/NVWS/insert_aref.mlir::different_yield_partition",
+        "test/TritonGPU/consan.mlir::barrier_reinit_requires_invalidate"
+      ],
+      "used_in_article": ["cross-partition-channel-insertion", "barrier-lifetime"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-8005",
+      "title": "Make warp specialization require at least 4 warps",
+      "url": "https://github.com/triton-lang/triton/pull/8005",
+      "source_type": "github_pr",
+      "status": "merged 2025-08-29",
+      "accessed_at": "2026-07-30",
+      "topics": ["verification", "minimum-warps", "warpgroup", "support-boundary"],
+      "distilled_claims": [
+        "The dialect requires the base warp count of a warp-specialized kernel to be a multiple of four instead of letting downstream warp-group allocation fail.",
+        "This is an explicit supported-subset boundary of the current IR and allocator."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonGPU/IR/Ops.cpp::WarpSpecializeOp::verify",
+        "lib/Conversion/TritonGPUToLLVM/AllocateWarpGroups.cpp::padToMaxWarpGroups"
+      ],
+      "current_tests": [
+        "test/TritonGPU/optimize-partition-warps.mlir::tmem_min_4_warps",
+        "test/Conversion/allocate_warp_groups.mlir"
+      ],
+      "used_in_article": ["support-boundaries", "logical-vs-physical-warpgroup"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-8189",
+      "title": "Add support for WarpSpecialization in ConSan",
+      "url": "https://github.com/triton-lang/triton/pull/8189",
+      "source_type": "github_pr",
+      "status": "merged 2025-09-23",
+      "accessed_at": "2026-07-30",
+      "topics": ["ConSan", "race-detection", "partition-scope", "verification"],
+      "distilled_claims": [
+        "Concurrency instrumentation must understand partition execution scopes, captures, asynchronous completion, and shared/TMEM accesses introduced by warp specialization.",
+        "Sanitizer support is independent evidence that the implementation treats synchronization as a verifiable semantic contract."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonInstrument/Transforms/ConcurrencySanitizer.cpp::ConcurrencySanitizerImpl",
+        "lib/Dialect/TritonNvidiaGPU/Transforms/ConSanNVIDIA.cpp::NVIDIAConSanHooks",
+        "lib/Dialect/TritonInstrument/Transforms/PrepareConSanCaptures.cpp"
+      ],
+      "current_tests": [
+        "test/TritonGPU/consan.mlir::cluster_barrier_partition_scopes",
+        "test/TritonGPU/consan-capture-reservation.mlir"
+      ],
+      "used_in_article": ["correctness-tooling", "sanitizer-semantics"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-8236",
+      "title": "Work around race by asserting MMA sync if scales are TMEM allocated before",
+      "url": "https://github.com/triton-lang/triton/pull/8236",
+      "source_type": "github_pr",
+      "status": "merged 2025-09-22",
+      "accessed_at": "2026-07-30",
+      "topics": ["scaled-MMA", "TMEM-scales", "race", "conservative-fallback"],
+      "distilled_claims": [
+        "Scaled MMA adds scale-operand dependencies that may not be safely pipelineable with the MMA partition.",
+        "When the required ordering cannot be represented, the implementation conservatively forces synchronous MMA behavior rather than preserving an unsafe overlap."
+      ],
+      "current_source_symbols": [
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertTmemAref.cpp::workaroundForLoopScheduler",
+        "lib/Dialect/TritonNvidiaGPU/Transforms/MMALowering.cpp::TCGen5MMAScaleSharedToTmemConversion"
+      ],
+      "current_tests": [
+        "test/NVWS/aref-tmem-insertion.mlir::matmul_scaled_rhs_scales_tma",
+        "test/TritonGPU/partition-scheduling.mlir::scaled_mma_with_loads"
+      ],
+      "used_in_article": ["case-scaled-mma", "conservative-correctness-fallback"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-8262",
+      "title": "Enable end-to-end ARef",
+      "url": "https://github.com/triton-lang/triton/pull/8262",
+      "source_type": "github_pr",
+      "status": "merged 2025-09-25",
+      "accessed_at": "2026-07-30",
+      "topics": ["ARef", "AutomaticWS", "end-to-end-pipeline", "TMA"],
+      "distilled_claims": [
+        "ARef insertion and lowering became the active end-to-end communication path inside AutomaticWS rather than a detached experimental dialect.",
+        "The current pass pipeline places ARef creation before PartitionLoops and lowers the channel before physical warp-group materialization."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/AutomaticWarpSpecialization.cpp::AutomaticWarpSpecialization::runOnOperation",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp::NVWSArefInsertion",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp::NVWSLowerAref"
+      ],
+      "current_tests": [
+        "test/TritonGPU/automatic-warp-specialization.mlir",
+        "test/NVWS/lower_aref.mlir::attention_forward"
+      ],
+      "used_in_article": ["current-pass-pipeline", "aref-end-to-end"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-8687",
+      "title": "Nested loop support",
+      "url": "https://github.com/triton-lang/triton/pull/8687",
+      "source_type": "github_pr",
+      "status": "merged 2025-12-02",
+      "accessed_at": "2026-07-30",
+      "topics": ["nested-loops", "persistent-attention", "TMEM-hoisting", "proof"],
+      "distilled_claims": [
+        "Partition propagation and ARef/TMEM handling recurse through nested loops.",
+        "TMEM allocation or zero initialization is hoisted only when control-flow analysis can prove the relevant loop executes; otherwise the initialization remains in place."
+      ],
+      "current_source_symbols": [
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/HoistTmemStore.cpp::canProveExecuteOnce",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/HoistTmemStore.cpp::hoistTmemAlloc",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp::propagatePartitions"
+      ],
+      "current_tests": [
+        "test/NVWS/aref-tmem-insertion.mlir::nested_loop_yes_double_buffer",
+        "test/NVWS/aref-tmem-insertion.mlir::nested_loop_no_double_buffer",
+        "test/TritonGPU/partition-scheduling.mlir::attention_persistent_inner_loop_kernel"
+      ],
+      "used_in_article": ["case-persistent-attention", "proof-driven-tmem-hoisting"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-8883",
+      "title": "Correctly assign stage and cluster annotation to ARef ops for a block-arg producer",
+      "url": "https://github.com/triton-lang/triton/pull/8883",
+      "source_type": "github_pr",
+      "status": "merged 2025-12-20",
+      "accessed_at": "2026-07-30",
+      "topics": ["block-arguments", "stage-cluster", "attention", "yield-tracing"],
+      "distilled_claims": [
+        "For a cross-partition value represented by a loop block argument, scheduling must trace through the yield edge to the actual defining operation.",
+        "Attention reductions provide a concrete case where treating the block argument itself as the producer loses required stage/cluster information."
+      ],
+      "current_source_symbols": [
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/AssignStagePhase.cpp::visitBackwardSlice",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/AssignStagePhase.cpp::updateOutputWithDefaultPartition"
+      ],
+      "current_tests": [
+        "test/NVWS/assign_stage_phase.mlir::attention_forward",
+        "test/TritonGPU/automatic-warp-specialization.mlir::attention_forward"
+      ],
+      "used_in_article": ["attention-block-arg-case", "stage-cluster-provenance"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-9007",
+      "title": "Store asyncOp per partition",
+      "url": "https://github.com/triton-lang/triton/pull/9007",
+      "source_type": "github_pr",
+      "status": "merged 2025-12-17",
+      "accessed_at": "2026-07-30",
+      "topics": ["TMEM-ARef", "partition-ownership", "async-token", "materialization"],
+      "distilled_claims": [
+        "TMEM producer/consumer bookkeeping must retain an asynchronous operation per partition; a single shared record can alias distinct MMAv5/TMEM dependencies.",
+        "A front-end warp-specialize attribute does not prove that partitions were materialized; a loop without an eligible TMA or TCGen5 root may remain unspecialized."
+      ],
+      "current_source_symbols": [
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertTmemAref.cpp::TmemAccessDag",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertTmemAref.cpp::TMEMAref",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/Partition.cpp::hasPartition"
+      ],
+      "current_tests": [
+        "test/NVWS/aref-tmem-insertion.mlir::test_tmem_no_ws",
+        "test/NVWS/aref-tmem-insertion.mlir::store_mma_load"
+      ],
+      "used_in_article": ["requested-vs-materialized-ws", "tmem-partition-ownership"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-9111",
+      "title": "Fix AutomaticWS when mixing TMA and non-TMA loads",
+      "url": "https://github.com/triton-lang/triton/pull/9111",
+      "source_type": "github_pr",
+      "status": "merged 2026-01-07",
+      "accessed_at": "2026-07-30",
+      "topics": ["mixed-loads", "TMA", "self-latency", "wait-barrier"],
+      "distilled_claims": [
+        "When only part of an MMA operand chain moves into a specialized partition, loop scheduling needs self-latency information to insert the required wait.",
+        "Mixed descriptor and ordinary loads are supported through explicit conservative scheduling rather than by assuming every operand is asynchronously produced."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonGPU/Transforms/Pipeliner/AssignLatencies.cpp",
+        "lib/Dialect/TritonGPU/Transforms/Pipeliner/LowerLoops.cpp",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp::isOperandPipelineable"
+      ],
+      "current_tests": [
+        "test/TritonGPU/automatic-warp-specialization.mlir::matmul_tma_and_regular_load",
+        "test/TritonGPU/pipeline-assign-latencies.mlir",
+        "test/TritonGPU/pipeline-schedule-loop.mlir"
+      ],
+      "used_in_article": ["case-mixed-loads", "schedule-barrier-coupling"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-9114",
+      "title": "Filter ARef.get results not produced and last-used in the scheduled loop",
+      "url": "https://github.com/triton-lang/triton/pull/9114",
+      "source_type": "github_pr",
+      "status": "merged 2025-12-28",
+      "accessed_at": "2026-07-30",
+      "topics": ["ARef", "scheduled-loop-scope", "last-use", "persistent-attention"],
+      "distilled_claims": [
+        "ARef gets are created only when the produced result and its last use both belong to the scheduled loop that owns the stage/cluster schedule.",
+        "A value escaping that scope is a legality boundary, not merely an opportunity for another buffer."
+      ],
+      "current_source_symbols": [
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp::getProducedValues",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp::insertArefs"
+      ],
+      "current_tests": [
+        "test/NVWS/insert_aref.mlir::aref_result_outside_scheduled_loop",
+        "test/TritonGPU/partition-scheduling.mlir::attention_persistent_inner_loop_kernel"
+      ],
+      "used_in_article": ["aref-legality-scope", "persistent-attention-boundary"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-9212",
+      "title": "Skip InsertTmemAref if function does not use warp specialization",
+      "url": "https://github.com/triton-lang/triton/pull/9212",
+      "source_type": "github_pr",
+      "status": "merged 2026-01-14",
+      "accessed_at": "2026-07-30",
+      "topics": ["TMEM-ARef", "fail-safe", "invariants", "maturity"],
+      "distilled_claims": [
+        "TMEM-ARef insertion is skipped when partition scheduling did not actually create warp specialization.",
+        "Maintainer review identifies a broader maturity requirement: unsupported invariants should disable the transformation before mutation instead of ending in downstream assertions."
+      ],
+      "current_source_symbols": [
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertTmemAref.cpp::hasProducerConsumerPartitioning",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertTmemAref.cpp::runOnFunction"
+      ],
+      "current_tests": [
+        "test/NVWS/aref-tmem-insertion.mlir::test_tmem_no_ws",
+        "test/TritonGPU/automatic-warp-specialization.mlir::no_eligible_memory_ops"
+      ],
+      "used_in_article": ["fail-safe-transform-design", "maturity-assessment"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-9456",
+      "title": "Make cluster barriers be executed by all threads",
+      "url": "https://github.com/triton-lang/triton/pull/9456",
+      "source_type": "github_pr",
+      "status": "merged 2026-02-20",
+      "accessed_at": "2026-07-30",
+      "topics": ["cluster-barrier", "all-thread-execution", "deadlock", "support-boundary"],
+      "distilled_claims": [
+        "A cluster barrier cannot be placed in a worker partition that is executed by only a subset of CTA threads; it must be moved to an all-thread control point.",
+        "Operations whose lowering requires a cluster-wide rendezvous cannot be arbitrarily isolated in one partition."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonNvidiaGPU/Transforms/ClusterBarrierInsertion.cpp::runClusterBarrierInsertion",
+        "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/ConvertWarpSpecializeToLLVM.cpp::NVIDIAWarpSpecializeBarrierHelper"
+      ],
+      "current_tests": [
+        "test/TritonNvidiaGPU/membar-cluster.mlir::insert_fence_and_relaxed_cluster_barrier_before_warp_specialize",
+        "test/TritonGPU/consan.mlir::cluster_barrier_partition_scopes"
+      ],
+      "used_in_article": ["cluster-barrier-boundary", "deadlock-proof-obligation"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-9591",
+      "title": "Concurrency Sanitizer support for detecting incorrect barrier re-initialization",
+      "url": "https://github.com/triton-lang/triton/pull/9591",
+      "source_type": "github_pr",
+      "status": "merged 2026-02-27",
+      "accessed_at": "2026-07-30",
+      "topics": ["ConSan", "mbarrier", "lifetime", "reinitialization"],
+      "distilled_claims": [
+        "Reinitializing an mbarrier before invalidating or completing its previous lifetime is a detectable correctness error.",
+        "This directly validates the lifecycle assumptions relied on by ARef lowering and shared-memory reuse."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonInstrument/Transforms/ConcurrencySanitizer.cpp::ConcurrencySanitizerImpl",
+        "lib/Dialect/TritonNvidiaGPU/Transforms/ConSanNVIDIA.cpp::NVIDIAConSanHooks"
+      ],
+      "current_tests": [
+        "test/TritonGPU/consan.mlir::barrier_reinit_requires_invalidate",
+        "test/TritonGPU/consan.mlir::wait_barrier_without_init",
+        "test/TritonGPU/consan.mlir::arrive_barrier_without_init"
+      ],
+      "used_in_article": ["barrier-lifecycle", "sanitizer-evidence"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-9716",
+      "title": "Add eligibility checks for memory operations in partition scheduling",
+      "url": "https://github.com/triton-lang/triton/pull/9716",
+      "source_type": "github_pr",
+      "status": "merged 2026-03-16",
+      "accessed_at": "2026-07-30",
+      "topics": ["eligibility", "descriptor-load", "TMA", "fallback"],
+      "distilled_claims": [
+        "Current Blackwell AutomaticWS requires at least one eligible descriptor memory operation before partition attributes are serialized.",
+        "Ordinary pointer loads are not descriptor load/store roots in the current partition classifier, so intent alone does not materialize specialization."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp::hasEligibleMemoryOps",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionSchedulingUtility.cpp::getNodeFlags",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp::initialDataValues"
+      ],
+      "current_tests": [
+        "test/TritonGPU/automatic-warp-specialization.mlir::no_eligible_memory_ops",
+        "test/TritonGPU/partition-scheduling.mlir::mma_no_memory_ops"
+      ],
+      "used_in_article": ["eligibility-gate", "requested-vs-materialized-ws"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-10058",
+      "title": "Limit warp specialization partition attributes to the WS pass",
+      "url": "https://github.com/triton-lang/triton/pull/10058",
+      "source_type": "github_pr",
+      "status": "merged 2026-04-16",
+      "accessed_at": "2026-07-30",
+      "topics": ["verifier", "partition-attributes", "pass-local-state", "cleanup"],
+      "distilled_claims": [
+        "Partition annotations are internal scheduling state: every intervening transformation is followed by verification and the attributes are cleared when AutomaticWS finishes.",
+        "This prevents stale analysis metadata from leaking into later compiler phases."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/AutomaticWarpSpecialization.cpp::VerifyWarpSpecializationPartitions",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/AutomaticWarpSpecialization.cpp::clearInternalWarpSpecializationAttrs",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/Partition.cpp::verifyPartitionAttrs"
+      ],
+      "current_tests": [
+        "test/TritonGPU/partition-verifier-locality.mlir",
+        "test/TritonGPU/automatic-warp-specialization.mlir::CLEAN checks"
+      ],
+      "used_in_article": ["partition-verifier", "pass-local-analysis-contract"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-10191",
+      "title": "Fix scaled MMA partition scheduling dependency",
+      "url": "https://github.com/triton-lang/triton/pull/10191",
+      "source_type": "github_pr",
+      "status": "merged 2026-05-02",
+      "accessed_at": "2026-07-30",
+      "topics": ["TCGen05", "scaled-MMA", "token-dependency", "TMEM"],
+      "distilled_claims": [
+        "The scaled-MMA token is a real dataflow seed and must participate in partition propagation like the ordinary MMA result.",
+        "Otherwise the token-consuming TMEM load and partition output metadata can be disconnected from the producing partition."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp::initialDataValues",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionSchedulingUtility.cpp::getNodeFlags"
+      ],
+      "current_tests": [
+        "test/TritonGPU/partition-scheduling.mlir::scaled_mma_descriptor_scales",
+        "test/Conversion/tritongpu_to_llvm_blackwell.mlir::tc_gen5_mma_scaled_fp4_padded_tmem_lhs"
+      ],
+      "used_in_article": ["case-scaled-mma", "token-as-data-dependency"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-10914",
+      "title": "Allocate warp-specialization mbarriers for atomic ordering",
+      "url": "https://github.com/triton-lang/triton/pull/10914",
+      "source_type": "github_pr",
+      "status": "merged 2026-07-17",
+      "accessed_at": "2026-07-30",
+      "topics": ["mbarrier-allocation", "atomic-ordering", "cluster-scope", "resource-planning"],
+      "distilled_claims": [
+        "Warp-specialized synchronization participates in global barrier resource planning when atomic acquire/release ordering can require cluster barriers.",
+        "Barrier allocation therefore depends on later memory-ordering requirements, not only on explicit ARef channels."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonNvidiaGPU/Transforms/ClusterBarrierMbarAllocator.cpp",
+        "third_party/nvidia/backend/compiler.py::CUDABackend.make_llir"
+      ],
+      "current_tests": [
+        "test/TritonNvidiaGPU/cluster-barrier-mbar-allocator.mlir",
+        "test/TritonNvidiaGPU/membar-cluster.mlir::cluster_barrier_between_lifetimes_same_offset"
+      ],
+      "used_in_article": ["barrier-resource-planning", "memory-ordering-integration"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "GH-PR-11067",
+      "title": "Fix use-list iterator invalidation in cloneMultiPartitionDataOps",
+      "url": "https://github.com/triton-lang/triton/pull/11067",
+      "source_type": "github_pr",
+      "status": "merged 2026-07-28",
+      "accessed_at": "2026-07-30",
+      "topics": ["robustness", "multi-partition-cloning", "use-list", "test-coverage"],
+      "distilled_claims": [
+        "Cloning data operations for several partitions mutates SSA use lists, so traversal must be stable under rewrite.",
+        "This recent hardening fix is evidence that canonical paths are actively maintained while unusual tile/control-flow shapes still expose compiler robustness bugs."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp::cloneMultiPartitionDataOps"
+      ],
+      "current_tests": [
+        "test/TritonGPU/partition-scheduling.mlir::clone_multi_partition_repeated_users"
+      ],
+      "used_in_article": ["maturity-assessment", "rewrite-robustness"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "NVIDIA-CUDA-COMPUTE-CAPABILITIES",
+      "title": "CUDA Programming Guide: Compute Capabilities and feature-set compiler targets",
+      "url": "https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/compute-capabilities.html",
+      "source_type": "nvidia_official_documentation",
+      "status": "current documentation accessed 2026-07-30",
+      "accessed_at": "2026-07-30",
+      "topics": ["SM103", "family-specific-target", "architecture-specific-target", "compile-only"],
+      "distilled_claims": [
+        "Compute capability 10.3 belongs to the compute_100f feature family, while compute_103f names the 10.3 family target and architecture-specific features require the corresponding architecture target.",
+        "The article must record the exact feature-set target used for compile-only evidence instead of treating every major-version-10 target as identical."
+      ],
+      "current_source_symbols": [
+        "third_party/nvidia/backend/compiler.py::sm_arch_from_capability",
+        "third_party/nvidia/backend/compiler.py::CUDABackend.make_ptx",
+        "third_party/nvidia/backend/compiler.py::CUDABackend.make_cubin"
+      ],
+      "current_tests": [
+        "test/TritonNvidiaGPU/fuse_tmem_load_reduce.mlir (cuda:103 cases)",
+        "test/Conversion/tritongpu_to_llvm_blackwell.mlir (cuda:103 TMEM-reduction cases)",
+        "test/Conversion/lower_tensor_memory_to_llvm.mlir (cuda:103)"
+      ],
+      "used_in_article": ["sm103-target-contract", "compile-only-methodology"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact_with_scoped_inference",
+      "confidence": "high"
+    },
+    {
+      "id": "NVIDIA-PTX-TMEM-TCGEN05",
+      "title": "PTX ISA: Tensor Memory and Fifth-Generation TensorCore instructions",
+      "url": "https://docs.nvidia.com/cuda/parallel-thread-execution/#tensor-memory",
+      "source_type": "nvidia_official_isa",
+      "status": "PTX ISA 9.3 current documentation accessed 2026-07-30",
+      "accessed_at": "2026-07-30",
+      "topics": ["TMEM", "TCGen05", "mma", "commit", "fence", "issue-granularity"],
+      "distilled_claims": [
+        "TCGen05 MMA accumulators reside in TMEM; MMA issue, TMEM allocation, and TMEM register load/store have different thread/warp issue granularities.",
+        "MMA completion tracking uses tcgen05.commit with an mbarrier, while visibility before a TMEM consumer also requires the prescribed TCGen05 fence/wait protocol."
+      ],
+      "current_source_symbols": [
+        "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/DotOpToLLVM/MMAv5.cpp::createGen5MMA",
+        "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/DotOpToLLVM/MMAv5.cpp::createScaledGen5MMA",
+        "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/DotOpToLLVM/MMAv5.cpp::createMMACommit",
+        "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/TensorMemoryToLLVM.cpp::TensorMemoryLoadOpConversion",
+        "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/TensorMemoryToLLVM.cpp::TensorMemoryStoreOpConversion"
+      ],
+      "current_tests": [
+        "test/Conversion/tritongpu_to_llvm_blackwell.mlir::tc_gen5_mma",
+        "test/Conversion/tritongpu_to_llvm_blackwell.mlir::tc_gen5_commit",
+        "test/Conversion/tritongpu_to_llvm_blackwell.mlir::tensor_memory_ld",
+        "test/Conversion/tritongpu_to_llvm_blackwell.mlir::tc_gen5_mma_scaled_fp8_tmem_lhs"
+      ],
+      "used_in_article": ["hardware-execution-model", "tcgen05-tmem-lowering", "case-scaled-mma"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "NVIDIA-PTX-BARRIERS-FENCES",
+      "title": "PTX ISA: mbarrier, named barriers, asynchronous completion, and proxy fences",
+      "url": "https://docs.nvidia.com/cuda/parallel-thread-execution/#parallel-synchronization-and-communication-instructions-mbarrier",
+      "source_type": "nvidia_official_isa",
+      "status": "PTX ISA 9.3 current documentation accessed 2026-07-30",
+      "accessed_at": "2026-07-30",
+      "topics": ["mbarrier", "bar.sync", "phase", "tx-count", "proxy-fence"],
+      "distilled_claims": [
+        "An mbarrier phase completes only after its pending arrival count and asynchronous transaction count are satisfied; phase/parity is part of the hardware protocol.",
+        "CTA named barriers coordinate participating threads, whereas proxy fences order visibility between memory proxies; neither substitutes for the other."
+      ],
+      "current_source_symbols": [
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp::createBarriers",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp::insertWaitOp",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp::insertArriveBarrier",
+        "lib/Dialect/TritonNvidiaGPU/Transforms/ProxyFenceInsertion.cpp::ProxyFenceAnalysis",
+        "lib/Dialect/TritonNvidiaGPU/Transforms/TMemBarrierInsertion.cpp::TMemBarrierAnalysis"
+      ],
+      "current_tests": [
+        "test/NVWS/lower_aref.mlir",
+        "test/TritonGPU/fence-inserstion.mlir",
+        "test/TritonGPU/consan.mlir::proxy_fence_state_transitions",
+        "test/TritonGPU/consan.mlir::barrier_reinit_requires_invalidate"
+      ],
+      "used_in_article": ["synchronization-taxonomy", "aref-phase-protocol", "correctness-invariants"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "NVIDIA-PTX-SETMAXNREG",
+      "title": "PTX ISA: setmaxnreg dynamic register allocation",
+      "url": "https://docs.nvidia.com/cuda/parallel-thread-execution/#miscellaneous-instructions-setmaxnreg",
+      "source_type": "nvidia_official_isa",
+      "status": "PTX ISA 9.3 current documentation accessed 2026-07-30",
+      "accessed_at": "2026-07-30",
+      "topics": ["setmaxnreg", "register-pool", "warpgroup", "synchronization"],
+      "distilled_claims": [
+        "setmaxnreg.inc/dec transfers per-thread register capacity through a CTA register pool, and all warps in a physical warpgroup must execute a consistent instruction.",
+        "Requested values are constrained to the ISA range and granularity, and synchronization is required around successive ownership changes."
+      ],
+      "current_source_symbols": [
+        "lib/Conversion/TritonGPUToLLVM/AllocateWarpGroups.cpp::AllocateWarpGroups::runOnOperation",
+        "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/ConvertWarpSpecializeToLLVM.cpp::createRegRealloc",
+        "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/ConvertWarpSpecializeToLLVM.cpp::lowerWarpSpecialize"
+      ],
+      "current_tests": [
+        "test/Conversion/allocate_warp_groups.mlir::setmaxnreg",
+        "test/Conversion/allocate_warp_groups.mlir::steal_from_default",
+        "test/Conversion/warp_specialize_to_llvm.mlir::dynamic_register_reallocation"
+      ],
+      "used_in_article": ["dynamic-register-protocol", "warpgroup-padding"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "NVIDIA-CUDA-TMA-WS",
+      "title": "CUDA Programming Guide: Tensor Memory Accelerator and producer-consumer warp specialization",
+      "url": "https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-copies.html#using-the-tensor-memory-accelerator-tma",
+      "source_type": "nvidia_official_documentation",
+      "status": "current documentation accessed 2026-07-30",
+      "accessed_at": "2026-07-30",
+      "topics": ["TMA", "producer-consumer", "elected-thread", "double-buffering"],
+      "distilled_claims": [
+        "A global-to-shared TMA operation can be issued by one elected thread and reports completion through an mbarrier tracking expected bytes.",
+        "Assigning TMA issue to a specialized low-register partition is a compiler scheduling choice for overlap and lifetime control, not a requirement that the hardware reserve a complete producer warp."
+      ],
+      "current_source_symbols": [
+        "lib/Dialect/TritonNvidiaGPU/Transforms/TMALowering.cpp::TMALoadLowering",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp::lowerTMALoad",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp::createTMALoad"
+      ],
+      "current_tests": [
+        "test/Conversion/tma_to_llvm.mlir",
+        "test/NVWS/lower_aref.mlir::warp_specialize_tma_matmul",
+        "test/TritonGPU/automatic-warp-specialization.mlir::matmul_change_desc_in_prologue"
+      ],
+      "used_in_article": ["tma-hardware-contract", "producer-partition-rationale"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact_with_scoped_inference",
+      "confidence": "high"
+    },
+    {
+      "id": "NVIDIA-BLACKWELL-TUNING",
+      "title": "NVIDIA Blackwell Tuning Guide",
+      "url": "https://docs.nvidia.com/cuda/blackwell-tuning-guide/index.html",
+      "source_type": "nvidia_official_documentation",
+      "status": "current documentation accessed 2026-07-30",
+      "accessed_at": "2026-07-30",
+      "topics": ["Blackwell", "register-file", "occupancy-resources", "thread-block-clusters"],
+      "distilled_claims": [
+        "Datacenter Blackwell exposes a 64K 32-bit register file per SM and at most 255 registers per thread, which bounds the register budget redistributed by AutomaticWS.",
+        "Thread-block clusters and distributed shared memory add scope and resource constraints that the compiler must respect even in compile-only legality analysis."
+      ],
+      "current_source_symbols": [
+        "lib/Conversion/TritonGPUToLLVM/AllocateWarpGroups.cpp::AllocateWarpGroups::runOnOperation",
+        "lib/Dialect/TritonNvidiaGPU/Transforms/ClusterBarrierInsertion.cpp::ClusterBarrierAnalysis",
+        "lib/Dialect/TritonNvidiaGPU/Transforms/ClusterBarrierMbarAllocator.cpp"
+      ],
+      "current_tests": [
+        "test/Conversion/allocate_warp_groups.mlir",
+        "test/TritonNvidiaGPU/membar-cluster.mlir",
+        "test/TritonNvidiaGPU/cluster-barrier-mbar-allocator.mlir"
+      ],
+      "used_in_article": ["hardware-resource-envelope", "cluster-scope"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact_with_scoped_inference",
+      "confidence": "high"
+    },
+    {
+      "id": "TRITON-DOC-RANGE",
+      "title": "triton.language.range warp_specialize parameter",
+      "url": "https://triton-lang.org/main/python-api/generated/triton.language.range.html",
+      "source_type": "triton_official_documentation",
+      "status": "current documentation accessed 2026-07-30",
+      "accessed_at": "2026-07-30",
+      "topics": ["frontend", "warp_specialize-attribute", "documented-support", "maturity"],
+      "distilled_claims": [
+        "The user-facing flag asks the compiler to partition memory, MMA, and vector operations into asynchronous partitions and may increase total warps.",
+        "The official API still documents Blackwell simple matmul loops as the supported baseline, so broader current tests should be presented as implementation growth rather than an unrestricted API guarantee."
+      ],
+      "current_source_symbols": [
+        "python/triton/language/core.py::range.__init__",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/AutomaticWarpSpecialization.cpp::AutomaticWarpSpecialization::runOnOperation"
+      ],
+      "current_tests": [
+        "test/TritonGPU/automatic-warp-specialization.mlir",
+        "test/TritonGPU/partition-scheduling.mlir"
+      ],
+      "used_in_article": ["frontend-contract", "documented-maturity-boundary"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "TRITON-DOC-TTGIR-WS",
+      "title": "TritonGPUOps: ttg.warp_specialize",
+      "url": "https://triton-lang.org/main/dialects/TritonGPUOps.html#ttg-warp-specialize",
+      "source_type": "triton_official_documentation",
+      "status": "current documentation accessed 2026-07-30",
+      "accessed_at": "2026-07-30",
+      "topics": ["TTGIR", "partition-regions", "captures", "register-attributes"],
+      "distilled_claims": [
+        "The operation's public IR contract exposes partition warp counts, warp-group start IDs, requested registers, actual registers, explicit captures, and an isolated partitions container.",
+        "Worker partitions currently cannot return values directly; the default region carries operation results."
+      ],
+      "current_source_symbols": [
+        "include/triton/Dialect/TritonGPU/IR/TritonGPUOps.td::WarpSpecializeOp",
+        "include/triton/Dialect/TritonGPU/IR/TritonGPUOps.td::WarpSpecializePartitionsOp",
+        "include/triton/Dialect/TritonGPU/IR/TritonGPUOps.td::WarpReturnOp"
+      ],
+      "current_tests": [
+        "test/TritonGPU/ops.mlir",
+        "test/Conversion/allocate_warp_groups.mlir",
+        "test/Conversion/warp_specialize_to_llvm.mlir"
+      ],
+      "used_in_article": ["ttgir-reference", "partition-abi", "register-metadata"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact",
+      "confidence": "high"
+    },
+    {
+      "id": "PYTORCH-AUTOWS-ROADMAP-2026",
+      "title": "Warp Specialization in Triton: Design and Roadmap",
+      "url": "https://pytorch.org/blog/warp-specialization-in-triton-design-and-roadmap/",
+      "source_type": "pytorch_official_article",
+      "status": "published 2026-01-08",
+      "accessed_at": "2026-07-30",
+      "topics": ["AutomaticWS", "design", "roadmap", "maturity", "partition-scheduler"],
+      "distilled_claims": [
+        "The official design decomposes AutomaticWS into data partitioning, software-pipeline scheduling, partition scheduling, communication-buffer creation, memory planning, channel creation, and code partitioning.",
+        "It explicitly describes compiler support as limited and experimental and identifies simple heuristics, generalized kernels, debugging, profile guidance, and richer hardware specialization as ongoing work.",
+        "Because the article is a January 2026 snapshot, claims about what has landed are reconciled against the frozen July 2026 source rather than copied as current truth."
+      ],
+      "current_source_symbols": [
+        "third_party/nvidia/backend/compiler.py::CUDABackend.make_ttgir",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp::PartitionScheduling::runOnOperation",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp::NVWSArefInsertion",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionLoops.cpp::PartitionLoops::runOnOperation"
+      ],
+      "current_tests": [
+        "test/TritonGPU/automatic-warp-specialization.mlir",
+        "test/TritonGPU/partition-scheduling.mlir",
+        "test/NVWS/aref-tmem-insertion.mlir"
+      ],
+      "used_in_article": ["design-overview", "roadmap-versus-landed-code", "maturity-assessment"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact_with_scoped_inference",
+      "confidence": "high"
+    },
+    {
+      "id": "TAWA-CGO-2026",
+      "title": "Tawa: Automatic Warp Specialization for Modern GPUs with Asynchronous References",
+      "url": "https://www.csl.cornell.edu/~zhiruz/pdfs/tawa-cgo2026.pdf",
+      "source_type": "tawa_paper",
+      "status": "CGO 2026 paper; arXiv 2510.14719",
+      "accessed_at": "2026-07-30",
+      "topics": ["ARef", "automatic-partitioning", "producer-consumer", "compiler-design"],
+      "distilled_claims": [
+        "Tawa defines an asynchronous reference as a logical producer-consumer channel backed by payload storage and empty/full synchronization state, with put/get/consumed operations and circular multi-buffering.",
+        "Its task-aware partitioning motivates following data dependencies from side-effecting roots and duplicating cheap dependency-closed computations where that avoids illegal cross-task SSA edges.",
+        "The paper supplies design provenance for ARef, while the frozen Triton implementation remains authoritative for exact pass order and supported cases."
+      ],
+      "current_source_symbols": [
+        "third_party/nvidia/include/Dialect/NVWS/IR/NVWSOps.td::ArefCreateOp",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp::insertArefs",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp::multiBufferAref",
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp::duplicateCheapOps"
+      ],
+      "current_tests": [
+        "test/NVWS/ops.mlir",
+        "test/NVWS/insert_aref.mlir::distance_one",
+        "test/NVWS/insert_aref.mlir::two_consumers",
+        "test/TritonGPU/partition-scheduling.mlir::optimize_broadcast"
+      ],
+      "used_in_article": ["aref-conceptual-model", "partitioning-theory", "implementation-provenance"],
+      "exclusion_reason": null,
+      "fact_or_inference": "fact_with_scoped_inference",
+      "confidence": "high"
+    }
+  ]
+}
