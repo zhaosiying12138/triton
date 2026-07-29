@@ -89,16 +89,17 @@
       "topics": ["partition-graph", "SSA", "shared-memory", "verification"],
       "distilled_claims": [
         "AutomaticWS began as a dataflow transformation: operations receive partition assignments and cross-partition SSA dependencies require an explicit communication representation.",
-        "A schedule verifier is necessary because later rewrites must preserve partition locality and dependency invariants."
+        "The current implementation splits proof obligations: partition metadata verification checks attribute locality/well-formedness, PartitionLoops rejects unresolved direct cross-partition SSA, and InsertAref supplies the positive communication rewrite."
       ],
       "current_source_symbols": [
-        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/Partition.cpp::PartitionSet::fromLoop",
         "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/Partition.cpp::verifyPartitionedLoop",
-        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp::buildGraph"
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionLoops.cpp::partitionLoop",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp::insertArefs"
       ],
       "current_tests": [
         "test/TritonGPU/partition-verifier-locality.mlir",
-        "test/TritonGPU/partition-scheduling.mlir::attention_forward"
+        "test/TritonGPU/partition-loops.mlir::still_has_ssa_deps",
+        "test/NVWS/insert_aref.mlir::warp_specialize_tma_matmul"
       ],
       "used_in_article": ["partition-dataflow-model", "cross-partition-ssa"],
       "exclusion_reason": null,
@@ -455,13 +456,9 @@
         "This is an explicit supported-subset boundary of the current IR and allocator."
       ],
       "current_source_symbols": [
-        "lib/Dialect/TritonGPU/IR/Ops.cpp::WarpSpecializeOp::verify",
-        "lib/Conversion/TritonGPUToLLVM/AllocateWarpGroups.cpp::padToMaxWarpGroups"
+        "lib/Dialect/TritonGPU/IR/Ops.cpp::WarpSpecializeOp::verify"
       ],
-      "current_tests": [
-        "test/TritonGPU/optimize-partition-warps.mlir::tmem_min_4_warps",
-        "test/Conversion/allocate_warp_groups.mlir"
-      ],
+      "current_tests": [],
       "used_in_article": ["support-boundaries", "logical-vs-physical-warpgroup"],
       "exclusion_reason": null,
       "fact_or_inference": "fact",
@@ -506,12 +503,13 @@
         "When the required ordering cannot be represented, the implementation conservatively forces synchronous MMA behavior rather than preserving an unsafe overlap."
       ],
       "current_source_symbols": [
-        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertTmemAref.cpp::workaroundForLoopScheduler",
-        "lib/Dialect/TritonNvidiaGPU/Transforms/MMALowering.cpp::TCGen5MMAScaleSharedToTmemConversion"
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp::setIsAsync",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/LowerAref.cpp::isOperandPipelineable",
+        "lib/Dialect/TritonGPU/Transforms/Pipeliner/MMAv5PipelineUtility.cpp::areScalesPipelineable",
+        "lib/Dialect/TritonGPU/Transforms/Pipeliner/MMAv5PipelineUtility.cpp::isOperandPipelineableBase"
       ],
       "current_tests": [
-        "test/NVWS/aref-tmem-insertion.mlir::matmul_scaled_rhs_scales_tma",
-        "test/TritonGPU/partition-scheduling.mlir::scaled_mma_with_loads"
+        "test/NVWS/lower_aref.mlir::load_scale_mma_user"
       ],
       "used_in_article": ["case-scaled-mma", "conservative-correctness-fallback"],
       "exclusion_reason": null,
@@ -584,12 +582,10 @@
         "Attention reductions provide a concrete case where treating the block argument itself as the producer loses required stage/cluster information."
       ],
       "current_source_symbols": [
-        "third_party/nvidia/lib/Dialect/NVWS/Transforms/AssignStagePhase.cpp::visitBackwardSlice",
-        "third_party/nvidia/lib/Dialect/NVWS/Transforms/AssignStagePhase.cpp::updateOutputWithDefaultPartition"
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp::getStageClusterForProducer"
       ],
       "current_tests": [
-        "test/NVWS/assign_stage_phase.mlir::attention_forward",
-        "test/TritonGPU/automatic-warp-specialization.mlir::attention_forward"
+        "test/NVWS/insert_aref.mlir::distance_one"
       ],
       "used_in_article": ["attention-block-arg-case", "stage-cluster-provenance"],
       "exclusion_reason": null,
@@ -658,12 +654,12 @@
       "accessed_at": "2026-07-30",
       "topics": ["ARef", "scheduled-loop-scope", "last-use", "persistent-attention"],
       "distilled_claims": [
-        "ARef gets are created only when the produced result and its last use both belong to the scheduled loop that owns the stage/cluster schedule.",
-        "A value escaping that scope is a legality boundary, not merely an opportunity for another buffer."
+        "ARef get/channel creation still covers produced values whose defining or consuming scope extends outside the scheduled loop.",
+        "Only produced results defined inside the scheduled loop are passed to enter/exit stage-cluster derivation; this avoids assigning that loop's schedule metadata to outside results without turning them into an unsupported communication case."
       ],
       "current_source_symbols": [
-        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp::getProducedValues",
-        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp::insertArefs"
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp::createArefGet",
+        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertAref.cpp::getEnterAndExitStageClustersOfUses"
       ],
       "current_tests": [
         "test/NVWS/insert_aref.mlir::aref_result_outside_scheduled_loop",
@@ -687,12 +683,10 @@
         "Maintainer review identifies a broader maturity requirement: unsupported invariants should disable the transformation before mutation instead of ending in downstream assertions."
       ],
       "current_source_symbols": [
-        "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertTmemAref.cpp::hasProducerConsumerPartitioning",
         "third_party/nvidia/lib/Dialect/NVWS/Transforms/InsertTmemAref.cpp::runOnFunction"
       ],
       "current_tests": [
-        "test/NVWS/aref-tmem-insertion.mlir::test_tmem_no_ws",
-        "test/TritonGPU/automatic-warp-specialization.mlir::no_eligible_memory_ops"
+        "test/NVWS/aref-tmem-insertion.mlir::test_tmem_no_ws"
       ],
       "used_in_article": ["fail-safe-transform-design", "maturity-assessment"],
       "exclusion_reason": null,
@@ -713,11 +707,13 @@
       ],
       "current_source_symbols": [
         "lib/Dialect/TritonNvidiaGPU/Transforms/ClusterBarrierInsertion.cpp::runClusterBarrierInsertion",
-        "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/ConvertWarpSpecializeToLLVM.cpp::NVIDIAWarpSpecializeBarrierHelper"
+        "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/ClusterOpsToLLVM.cpp::InitializeWSClusterBarriers",
+        "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/ClusterOpsToLLVM.cpp::lowerClusterSyncForAllWarps"
       ],
       "current_tests": [
         "test/TritonNvidiaGPU/membar-cluster.mlir::insert_fence_and_relaxed_cluster_barrier_before_warp_specialize",
-        "test/TritonGPU/consan.mlir::cluster_barrier_partition_scopes"
+        "test/Conversion/tritonnvidiagpu_to_llvm.mlir::cluster_barrier_inside_warp_specialize",
+        "test/Conversion/tritonnvidiagpu_to_llvm.mlir::cluster_barrier_inside_warp_specialize_reuses_slots"
       ],
       "used_in_article": ["cluster-barrier-boundary", "deadlock-proof-obligation"],
       "exclusion_reason": null,
@@ -785,7 +781,7 @@
       "accessed_at": "2026-07-30",
       "topics": ["verifier", "partition-attributes", "pass-local-state", "cleanup"],
       "distilled_claims": [
-        "Partition annotations are internal scheduling state: every intervening transformation is followed by verification and the attributes are cleared when AutomaticWS finishes.",
+        "Partition annotations are internal scheduling state: selected transformations from PartitionScheduling through LowerAref are each followed by verification; PartitionLoops, LowerWarpGroup, and ScheduleLoops are not wrapped by that verifier, and the attributes are cleared when AutomaticWS finishes materialization.",
         "This prevents stale analysis metadata from leaking into later compiler phases."
       ],
       "current_source_symbols": [
@@ -815,12 +811,11 @@
         "Otherwise the token-consuming TMEM load and partition output metadata can be disconnected from the producing partition."
       ],
       "current_source_symbols": [
-        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp::initialDataValues",
-        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionSchedulingUtility.cpp::getNodeFlags"
+        "lib/Dialect/TritonGPU/Transforms/WarpSpecialization/PartitionScheduling.cpp::initialDataValues"
       ],
       "current_tests": [
-        "test/TritonGPU/partition-scheduling.mlir::scaled_mma_descriptor_scales",
-        "test/Conversion/tritongpu_to_llvm_blackwell.mlir::tc_gen5_mma_scaled_fp4_padded_tmem_lhs"
+        "test/TritonGPU/partition-scheduling.mlir::scaled_mma_with_loads",
+        "test/TritonGPU/partition-scheduling.mlir::scaled_mma_descriptor_scales"
       ],
       "used_in_article": ["case-scaled-mma", "token-as-data-dependency"],
       "exclusion_reason": null,
@@ -836,16 +831,17 @@
       "accessed_at": "2026-07-30",
       "topics": ["mbarrier-allocation", "atomic-ordering", "cluster-scope", "resource-planning"],
       "distilled_claims": [
-        "Warp-specialized synchronization participates in global barrier resource planning when atomic acquire/release ordering can require cluster barriers.",
-        "Barrier allocation therefore depends on later memory-ordering requirements, not only on explicit ARef channels."
+        "Multi-CTA atomic_poll and selected atomic acquire/release cases inside a warp-specialized region need cluster-ordering barriers and therefore receive the same per-region double-slot mbarrier allocation as explicit cluster barriers.",
+        "Barrier allocation depends on operation semantics and later atomic-ordering lowering, not only on explicit ARef channels or explicit ClusterBarrierOp instances."
       ],
       "current_source_symbols": [
-        "lib/Dialect/TritonNvidiaGPU/Transforms/ClusterBarrierMbarAllocator.cpp",
-        "third_party/nvidia/backend/compiler.py::CUDABackend.make_llir"
+        "lib/Dialect/TritonNvidiaGPU/Transforms/ClusterBarrierMbarAllocator.cpp::atomicNeedsClusterBarrier",
+        "lib/Dialect/TritonNvidiaGPU/Transforms/ClusterBarrierMbarAllocator.cpp::needsClusterBarrier",
+        "lib/Conversion/TritonGPUToLLVM/MemoryOpToLLVM.cpp::AtomicPollOpConversion"
       ],
       "current_tests": [
-        "test/TritonNvidiaGPU/cluster-barrier-mbar-allocator.mlir",
-        "test/TritonNvidiaGPU/membar-cluster.mlir::cluster_barrier_between_lifetimes_same_offset"
+        "test/TritonNvidiaGPU/cluster-barrier-mbar-allocator.mlir::cluster_barrier_mbar_allocator",
+        "test/Conversion/tritongpu_to_llvm.mlir::atomic_release_multi_cta_warp_specialize"
       ],
       "used_in_article": ["barrier-resource-planning", "memory-ordering-integration"],
       "exclusion_reason": null,
@@ -905,14 +901,15 @@
     {
       "id": "NVIDIA-PTX-TMEM-TCGEN05",
       "title": "PTX ISA: Tensor Memory and Fifth-Generation TensorCore instructions",
-      "url": "https://docs.nvidia.com/cuda/parallel-thread-execution/#tensor-memory",
+      "url": "https://docs.nvidia.com/cuda/parallel-thread-execution/#tensorcore-5th-generation-instructions",
       "source_type": "nvidia_official_isa",
       "status": "PTX ISA 9.3 current documentation accessed 2026-07-30",
       "accessed_at": "2026-07-30",
       "topics": ["TMEM", "TCGen05", "mma", "commit", "fence", "issue-granularity"],
       "distilled_claims": [
         "TCGen05 MMA accumulators reside in TMEM; MMA issue, TMEM allocation, and TMEM register load/store have different thread/warp issue granularities.",
-        "MMA completion tracking uses tcgen05.commit with an mbarrier, while visibility before a TMEM consumer also requires the prescribed TCGen05 fence/wait protocol."
+        "MMA completion tracking uses tcgen05.commit with an mbarrier. In the canonical MMA-to-TMEM-load sequence, PTX separately requires tcgen05.fence::after_thread_sync before the asynchronous tcgen05.ld, followed by tcgen05.wait::ld before consuming its register results.",
+        "The frozen Triton dialect/lowering/tests and the exact SM103 artifact contain commit, mbarrier wait, tcgen05.ld, and wait::ld but omit the specialized after-thread-sync fence. Assembly success therefore does not qualify this cross-thread ordering contract or runtime correctness."
       ],
       "current_source_symbols": [
         "third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/DotOpToLLVM/MMAv5.cpp::createGen5MMA",
@@ -925,7 +922,8 @@
         "test/Conversion/tritongpu_to_llvm_blackwell.mlir::tc_gen5_mma",
         "test/Conversion/tritongpu_to_llvm_blackwell.mlir::tc_gen5_commit",
         "test/Conversion/tritongpu_to_llvm_blackwell.mlir::tensor_memory_ld",
-        "test/Conversion/tritongpu_to_llvm_blackwell.mlir::tc_gen5_mma_scaled_fp8_tmem_lhs"
+        "test/Conversion/tritongpu_to_llvm_blackwell.mlir::tc_gen5_mma_scaled_fp8_tmem_lhs",
+        "docs/blackwell-warp-specialization/lab/build/raw/tma_matmul/on/kernel.ptx (exact-SM103 gap observation; ignored raw artifact)"
       ],
       "used_in_article": ["hardware-execution-model", "tcgen05-tmem-lowering", "case-scaled-mma"],
       "exclusion_reason": null,

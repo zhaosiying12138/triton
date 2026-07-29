@@ -1,0 +1,284 @@
+{
+  "schema_version": 1,
+  "target": {
+    "alias": "sm103",
+    "backend": "cuda",
+    "arch": 103,
+    "warp_size": 32,
+    "canonical": "cuda:103:32",
+    "ptx_target_regex": "(?m)^\\s*\\.target\\s+sm_103a(?:\\s|,|$)"
+  },
+  "interesting_passes": [
+    "tritongpu-automatic-warp-specialization",
+    "tritongpu-partition-scheduling",
+    "nvws-insert-aref",
+    "nvws-insert-tmem-aref",
+    "nvws-lower-aref",
+    "nvws-lower-warp-group",
+    "tritongpu-optimize-partition-warps",
+    "tritongpu-allocate-warp-groups",
+    "triton-nvidia-tma-lowering",
+    "triton-nvidia-gpu-tmem-barrier-insertion",
+    "initialize-ws-cluster-barriers",
+    "convert-warp-specialize-to-llvm"
+  ],
+  "families": {
+    "warp_specialize": {
+      "description": "Triton warp-partition IR and its physical allocation metadata",
+      "proof_stages": ["ttgir", "trace"],
+      "required_match": "all",
+      "patterns": {
+        "ttgir": [
+          "ttg\\.warp_specialize",
+          "requestedRegisters"
+        ],
+        "trace": [
+          "ttg\\.warp_specialize",
+          "warpGroupStartIds",
+          "actualRegisters"
+        ]
+      }
+    },
+    "aref": {
+      "description": "Intermediate asynchronous-reference channel before barrier lowering",
+      "proof_stages": ["trace"],
+      "required_match": "any",
+      "patterns": {
+        "ttgir": [
+          "nvws\\.aref"
+        ],
+        "trace": [
+          "nvws\\.aref\\.(?:create|put|get)"
+        ]
+      }
+    },
+    "tma": {
+      "description": "Tensor Memory Accelerator descriptor mutation and PTX bulk tensor copy",
+      "proof_stages": ["ptx"],
+      "required_match": "all",
+      "patterns": {
+        "ttir": [
+          "tt\\.(?:make_tensor_descriptor|descriptor_(?:load|store))"
+        ],
+        "ttgir": [
+          "ttng\\.(?:async_tma_copy|tma_)|tt\\.descriptor_(?:load|store)"
+        ],
+        "llir": [
+          "cp\\.async\\.bulk\\.tensor|tensormap"
+        ],
+      "ptx": [
+        "cp\\.async\\.bulk\\.tensor",
+        "tensormap"
+        ],
+        "trace": [
+          "ttng\\.(?:async_tma_copy|tma_)|tt\\.descriptor_(?:load|store)"
+        ]
+      }
+    },
+    "tcgen05": {
+      "description": "Fifth-generation Tensor Core MMA issue and completion commit",
+      "proof_stages": ["ptx"],
+      "required_match": "all",
+      "patterns": {
+        "ttgir": [
+          "ttng\\.tc_gen5_mma"
+        ],
+        "llir": [
+          "tcgen05\\."
+        ],
+      "ptx": [
+        "tcgen05\\.mma",
+        "tcgen05\\.commit"
+        ],
+        "trace": [
+          "ttng\\.tc_gen5_mma|tcgen05\\."
+        ]
+      }
+    },
+    "tmem": {
+      "description": "Tensor Memory allocation, register transfer, and deallocation",
+      "proof_stages": ["ptx"],
+      "required_match": "all",
+      "patterns": {
+        "ttgir": [
+          "ttng\\.tmem_(?:alloc|load|store|subslice)|tensor_memory"
+        ],
+        "llir": [
+          "tcgen05\\.(?:alloc|dealloc|ld|st|cp)"
+        ],
+      "ptx": [
+        "tcgen05\\.alloc",
+        "tcgen05\\.(?:ld|st)",
+        "tcgen05\\.dealloc"
+        ],
+        "trace": [
+          "ttng\\.tmem_(?:alloc|load|store|subslice)|tensor_memory"
+        ]
+      }
+    },
+    "mbarrier": {
+      "description": "Shared-memory transaction expectation and phase-completion protocol",
+      "proof_stages": ["ptx"],
+      "required_match": "all",
+      "patterns": {
+        "ttgir": [
+          "ttng\\.(?:init_barrier|wait_barrier|arrive_barrier|barrier_expect|inval_barrier|async_copy_mbarrier_arrive|fence_mbarrier_[a-z_]+)"
+        ],
+        "llir": [
+          "mbarrier\\."
+        ],
+      "ptx": [
+        "mbarrier\\.arrive\\.expect_tx",
+        "mbarrier\\.try_wait"
+        ],
+        "trace": [
+          "ttng\\.(?:init_barrier|wait_barrier|arrive_barrier|barrier_expect|inval_barrier|async_copy_mbarrier_arrive|fence_mbarrier_[a-z_]+)|mbarrier\\."
+        ]
+      }
+    },
+    "named_barrier": {
+      "description": "Explicit-ID CTA barrier used for warp-role dispatch or synchronization",
+      "proof_stages": ["ptx"],
+      "required_match": "any",
+      "patterns": {
+        "llir": [
+          "bar\\.(?:sync|arrive)\\s+[1-9][0-9]*|(?:llvm\\.)?nvvm\\.barrier\\.cta\\.(?:sync|arrive)|barrier\\.cta\\.(?:sync|arrive)"
+        ],
+      "ptx": [
+        "(?:bar|barrier)\\.(?:sync|arrive)\\s+[1-9][0-9]*|barrier\\.cta\\.(?:sync|arrive)"
+        ],
+        "trace": [
+          "nvvm\\.barrier\\s+id\\s*=|(?:llvm\\.)?nvvm\\.barrier\\.cta\\.(?:sync|arrive)|barrier\\.cta\\.(?:sync|arrive)"
+        ]
+      }
+    },
+    "cluster_barrier": {
+      "description": "CTA-cluster synchronization, distinct from TMA/TCGen05 completion",
+      "proof_stages": ["ptx"],
+      "required_match": "any",
+      "patterns": {
+        "ttgir": [
+          "ttng\\.cluster_barrier"
+        ],
+        "llir": [
+          "barrier\\.cluster|mbarrier\\.(?:arrive|try_wait)[^\\n]*\\.cluster\\."
+        ],
+        "ptx": [
+          "barrier\\.cluster|mbarrier\\.(?:arrive|try_wait)[^\\n]*\\.cluster\\."
+        ],
+        "trace": [
+          "ttng\\.cluster_barrier|barrier\\.cluster|mbarrier\\.(?:arrive|try_wait)[^\\n]*\\.cluster\\."
+        ]
+      }
+    },
+    "setmaxnreg": {
+      "description": "Dynamic per-warp register redistribution",
+      "proof_stages": ["ptx"],
+      "required_match": "all",
+      "patterns": {
+        "llir": [
+          "setmaxnreg|setmaxregister"
+        ],
+        "ptx": [
+          "setmaxnreg\\.inc\\.sync\\.aligned",
+          "setmaxnreg\\.dec\\.sync\\.aligned"
+        ],
+        "trace": [
+          "setmaxregister|actualRegisters|requestedRegisters"
+        ]
+      }
+    }
+  },
+  "cases": {
+    "tma_matmul": {
+      "title": "Automatic WS: TMA -> TCGen05 -> TMEM matmul",
+      "description": "A compile-only adaptation of python/test/unit/language/test_warp_specialization.py. The only semantic difference between variants is the tl.range warp_specialize constexpr.",
+      "kind": "python_ast",
+      "source": "cases/tma_matmul.py",
+      "entry": "make_source",
+      "options": {
+        "num_warps": 4,
+        "num_stages": 3
+      },
+      "expectations": {
+        "on": {
+          "required": [
+            "warp_specialize",
+            "tma",
+            "tcgen05",
+            "tmem",
+            "mbarrier"
+          ],
+          "optional": [
+            "aref",
+            "named_barrier",
+            "cluster_barrier",
+            "setmaxnreg"
+          ],
+          "forbidden": []
+        },
+        "off": {
+          "required": [
+            "tma",
+            "tcgen05",
+            "tmem",
+            "mbarrier"
+          ],
+          "optional": [
+            "named_barrier"
+          ],
+          "forbidden": [
+            "warp_specialize",
+            "aref",
+            "cluster_barrier",
+            "setmaxnreg"
+          ]
+        }
+      }
+    },
+    "ws_skeleton": {
+      "title": "Explicit WS skeleton: dispatch, named barriers, and register redistribution",
+      "description": "A small lit-style TTGIR fixture that isolates warp-role lowering from TMA and Tensor Core details.",
+      "kind": "ir",
+      "sources": {
+        "on": "cases/ws_skeleton_on.ttgir",
+        "off": "cases/ws_skeleton_off.ttgir"
+      },
+      "options": {},
+      "expectations": {
+        "on": {
+          "required": [
+            "warp_specialize",
+            "named_barrier",
+            "setmaxnreg"
+          ],
+          "optional": [
+            "aref",
+            "tma",
+            "tcgen05",
+            "tmem",
+            "mbarrier",
+            "cluster_barrier"
+          ],
+          "forbidden": []
+        },
+        "off": {
+          "required": [],
+          "optional": [
+            "tma",
+            "tcgen05",
+            "tmem",
+            "mbarrier"
+          ],
+          "forbidden": [
+            "warp_specialize",
+            "aref",
+            "named_barrier",
+            "cluster_barrier",
+            "setmaxnreg"
+          ]
+        }
+      }
+    }
+  }
+}

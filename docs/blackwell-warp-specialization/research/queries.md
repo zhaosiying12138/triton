@@ -145,6 +145,9 @@ rg -n 'tc_gen5_mma|tc_gen5_commit|tensor_memory_ld|scaled|cuda:103' \
   test/Conversion/tritongpu_to_llvm_blackwell.mlir \
   test/Conversion/lower_tensor_memory_to_llvm.mlir \
   test/TritonNvidiaGPU/fuse_tmem_load_reduce.mlir
+
+rg -n -i 'tcgen05[._:].*fence|after_thread_sync|before_thread_sync|Tcgen05Fence' \
+  --glob '!docs/blackwell-warp-specialization/**' .
 ```
 
 Questions answered:
@@ -152,6 +155,7 @@ Questions answered:
 - Which TCGen05 operation or token is considered a partition data root?
 - Where are scale descriptors and scale TMEM operands lowered?
 - Which compile-time checks prove emission of `tcgen05.mma`, `tcgen05.commit`, `tcgen05.ld/st/cp`, and their scaled forms for capability 103?
+- Does the frozen dialect/lowering/test tree contain the ISA-canonical `tcgen05.fence::after_thread_sync`, and does the exact-SM103 PTX/SASS preserve an equivalent ordering step?
 - Which lower-level capability-103 tests exist independently of the mostly capability-100 AutomaticWS transform tests?
 
 ### TMA, barriers, fences, and hazards
@@ -163,6 +167,13 @@ rg -n 'TMALoadLowering|TMAGatherLowering|TMAStoreLowering|TMAReduceLowering|TMAS
 rg -n 'ProxyFenceAnalysis|insertFence|TMemBarrierAnalysis|insertBarrier' \
   lib/Dialect/TritonNvidiaGPU/Transforms/ProxyFenceInsertion.cpp \
   lib/Dialect/TritonNvidiaGPU/Transforms/TMemBarrierInsertion.cpp
+
+rg -n 'FenceAsyncSharedOpConversion|FenceMBarrierInitReleaseClusterOpConversion|fence.mbarrier_init' \
+  third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/BarrierOpToLLVM.cpp \
+  third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/ClusterOpsToLLVM.cpp
+
+rg -n 'tensormap_cp_fenceproxy|TensormapFenceproxyAcquireOpConversion|fence.proxy.tensormap' \
+  third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/TMAToLLVM.cpp
 
 rg -n 'mma_inside_warp_specialize|matmul_like_fence_mma_v5' \
   test/TritonGPU/fence-inserstion.mlir
@@ -242,7 +253,7 @@ rg -n 'cluster_barrier_partition_scopes|proxy_fence_state_transitions|tma_comple
 
 Questions answered:
 
-- Which invariants are verified after each AutomaticWS subpass?
+- Which selected AutomaticWS subpasses are followed by the partition verifier, and which later materialization subpasses are not?
 - Which internal attributes are guaranteed not to escape the pass?
 - What synchronization and memory effects can ConSan model at compile time?
 
@@ -329,9 +340,9 @@ Reconciliation rules:
 | Partition materialization | `partitionLoop`, `cloneForOp`, `cloneIfOp` | `partition-loops.mlir` |
 | ARef | `insertArefs`, `createBarriers`, `multiBufferAref` | `insert_aref.mlir`, `lower_aref.mlir` |
 | TMEM ARef | `TmemAccessDag`, `TMEMAref`, `runOnFunction` | `aref-tmem-insertion.mlir` |
-| TCGen05/scaled | `createGen5MMA`, `createScaledGen5MMA`, `createMMACommit` | `tritongpu_to_llvm_blackwell.mlir` |
+| TCGen05/scaled | `createGen5MMA`, `createScaledGen5MMA`, `createMMACommit`, TMEM conversions；negative `tcgen05.fence` audit | `tritongpu_to_llvm_blackwell.mlir`；exact-SM103 PTX/SASS |
 | TMA | `TMALoadLowering`, `lowerTMALoad` | `tma_to_llvm.mlir`, `lower_aref.mlir` |
-| mbarrier/fence | `createBarriers`, `ProxyFenceAnalysis`, `TMemBarrierAnalysis` | `consan.mlir`, `fence-inserstion.mlir` |
+| mbarrier/fence | `createBarriers`, `ProxyFenceAnalysis`, `BarrierOpToLLVM`, `TMAToLLVM`, `TMemBarrierAnalysis` | `consan.mlir`, `fence-inserstion.mlir`, exact PTX/SASS |
 | warp groups/registers | `OptimizePartitionWarps`, `AllocateWarpGroups`, `createRegRealloc` | `optimize-partition-warps.mlir`, `allocate_warp_groups.mlir`, `warp_specialize_to_llvm.mlir` |
 | persistent attention | `visitBackwardSlice`, `hoistTmemAlloc` | persistent-attention cases in `partition-scheduling.mlir` |
 | grouped GEMM | graph propagation plus nested `PartitionLoops` | `grouped_matmul_tma_kernel` in `automatic-warp-specialization.mlir` |
@@ -339,13 +350,14 @@ Reconciliation rules:
 
 ## Known evidence gaps at the frozen revision
 
-1. Most end-to-end AutomaticWS lit inputs identify the target as `cuda:100`. Capability-103 lowering is covered separately by TMEM/TCGen05 tests, but there is no single checked-in lit case that starts with an AutomaticWS loop, carries target `cuda:103` through every pass, and FileChecks the final PTX.
-2. `sm_arch_from_capability` still contains `TODO: Handle non-"a" sms`. A compile-only study must record the exact emitted `.target` and ptxas target rather than infer family-target behavior from CUDA documentation.
-3. The repository contains strong lit coverage for individual transformations, but no frozen artifact currently captures one complete case at every boundary: pre-scheduling TTGIR, partition attributes, ARef, partitioned TTGIR, LLVM IR, and PTX.
-4. ConSan tests validate instrumented IR transformations and modeled synchronization semantics. Without execution, they do not prove absence of hardware races or deadlocks.
-5. Persistent attention and grouped GEMM have compile-time regression cases, but the public `tl.range` documentation still advertises only simple matmul loops. The article must distinguish implemented regression coverage from the documented user-facing guarantee.
-6. PartitionScheduling is heuristic. The frozen tree verifies legality and many structural outcomes, but it has no formal optimality proof or general profitability model.
-7. The compile-only boundary permits claims such as “the intended partition/channel/instruction structure was generated.” It does not permit claims of numerical correctness, progress on hardware, occupancy, latency hiding, or speedup.
+1. PTX ISA's canonical cross-thread MMA→TMEM-load sequence requires `tcgen05.fence::after_thread_sync` after completion synchronization. The frozen dialect/lowering/tests and exact-SM103 PTX/SASS contain no such instruction or documented equivalent. This is an ISA-contract/implementation/coverage qualification gap; without SM103 execution it is not presented as an observed dynamic failure.
+2. Most checked-in end-to-end AutomaticWS lit inputs identify the target as `cuda:100`; there is no single repository lit case that starts with an AutomaticWS loop, carries `cuda:103` through every pass, and FileChecks final PTX. The local four-variant lab adds exact-SM103 artifacts for canonical TMA GEMM and explicit worker skeleton, but it does not widen the checked-in regression matrix.
+3. `sm_arch_from_capability` still contains `TODO: Handle non-"a" sms`. The lab therefore records the emitted `.target sm_103a`, compiler target tuple and ptxas invocation rather than inferring them from major-version documentation.
+4. The full local traces now capture canonical TMA GEMM and worker-skeleton boundaries through PTX/cubin/SASS. Persistent/scaled/2CTA/attention/grouped cases still rely on separate focused fixtures without equivalent exact-SM103 end-to-end provenance.
+5. ConSan tests validate instrumented IR transformations and modeled synchronization semantics. Without execution—and without a hook that verifies the missing final-PTX TCGen05 fence—they do not prove absence of hardware races or deadlocks.
+6. Persistent attention and grouped GEMM have compile-time regression cases, but the public `tl.range` documentation still advertises only simple matmul loops. The article must distinguish implemented regression coverage from the documented user-facing guarantee.
+7. PartitionScheduling is heuristic. The frozen tree verifies legality and many structural outcomes, but it has no formal optimality proof or general profitability model.
+8. The compile-only boundary permits claims such as “the intended partition/channel/instruction structure was generated.” It does not permit claims of numerical correctness, progress on hardware, occupancy, latency hiding, or speedup.
 
 ## Article claim labels
 
@@ -355,4 +367,3 @@ Use these labels consistently:
 - **Frozen-source observation**: derived by reading a symbol or FileCheck at `bf64a5db`.
 - **Scoped inference**: a mechanism-level conclusion joining an external hardware contract to a frozen lowering; it must be worded as an inference.
 - **Not established compile-only**: any runtime correctness, liveness, or performance conclusion.
-

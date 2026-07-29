@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="690" viewBox="0 0 1320 690" role="img" aria-labelledby="title desc">
+  <title id="title">Persistent worker dispatch lowering</title>
+  <desc id="desc">Default warps publish captures and task state while worker warps wait, switch on partition id, execute and rendezvous.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07131f"/><stop offset="1" stop-color="#111f36"/></linearGradient>
+    <marker id="a" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto"><path d="M0 0L11 5.5L0 11Z" fill="#89d8ff"/></marker>
+    <style>.h{font:700 28px system-ui;fill:#f7fbff}.t{font:700 18px system-ui;fill:#fff}.s{font:500 14px system-ui;fill:#c6d7e7}.m{font:600 13px ui-monospace;fill:#b9efff}.b{stroke-width:2;rx:16}.e{fill:none;stroke:#89d8ff;stroke-width:3;marker-end:url(#a)}.r{fill:none;stroke:#f083c9;stroke-width:2.5;stroke-dasharray:8 7;marker-end:url(#a)}</style>
+  </defs>
+  <rect width="1320" height="690" rx="28" fill="url(#bg)"/>
+  <text x="52" y="58" class="h">Lowering ttg.warp_specialize into a persistent worker protocol</text>
+  <text x="72" y="112" class="t">Default warp group</text><text x="750" y="112" class="t">Worker warp groups</text>
+  <rect class="b" x="60" y="145" width="500" height="76" fill="#153449" stroke="#5cbdf0"/>
+  <text x="310" y="175" text-anchor="middle" class="m">pack explicit captures into shared scratch</text>
+  <text x="310" y="201" text-anchor="middle" class="s">capture ABI is published once per WS instance</text>
+  <rect class="b" x="60" y="265" width="500" height="76" fill="#173b3a" stroke="#55d6be"/>
+  <text x="310" y="295" text-anchor="middle" class="m">publish partition id / state → named barrier</text>
+  <text x="310" y="321" text-anchor="middle" class="s">barrier 0: default rendezvous · barrier 1: switch state</text>
+  <rect class="b" x="60" y="385" width="500" height="76" fill="#50321d" stroke="#ffb35c"/>
+  <text x="310" y="415" text-anchor="middle" class="m">execute default region concurrently</text>
+  <text x="310" y="441" text-anchor="middle" class="s">later join workers and continue surrounding CFG</text>
+
+  <rect class="b" x="700" y="145" width="560" height="76" fill="#342d52" stroke="#b29cff"/>
+  <text x="980" y="175" text-anchor="middle" class="m">relativeWarpId = warpId − warpGroupStartId</text>
+  <text x="980" y="201" text-anchor="middle" class="s">partition-local thread/warp identity</text>
+  <rect class="b" x="700" y="265" width="560" height="76" fill="#472a40" stroke="#f083c9"/>
+  <text x="980" y="295" text-anchor="middle" class="m">wait switch barrier → load state → switch(partition id)</text>
+  <text x="980" y="321" text-anchor="middle" class="s">persistent dispatch loop, not duplicated whole-kernel CFG</text>
+  <rect class="b" x="700" y="385" width="170" height="92" fill="#173b3a" stroke="#55d6be"/><text x="785" y="420" text-anchor="middle" class="t">partition 0</text><text x="785" y="448" text-anchor="middle" class="m">TMA role</text>
+  <rect class="b" x="895" y="385" width="170" height="92" fill="#50321d" stroke="#ffb35c"/><text x="980" y="420" text-anchor="middle" class="t">partition 1</text><text x="980" y="448" text-anchor="middle" class="m">MMA role</text>
+  <rect class="b" x="1090" y="385" width="170" height="92" fill="#3d2340" stroke="#f083c9"/><text x="1175" y="420" text-anchor="middle" class="t">partition 2</text><text x="1175" y="448" text-anchor="middle" class="m">epilogue role</text>
+  <rect class="b" x="700" y="535" width="560" height="76" fill="#153449" stroke="#5cbdf0"/>
+  <text x="980" y="565" text-anchor="middle" class="m">warp_return → worker rendezvous → dispatch loop</text>
+  <text x="980" y="591" text-anchor="middle" class="s">worker barrier IDs start at 2; hardware provides 16 named CTA barriers</text>
+  <path class="e" d="M310 221V255"/><path class="e" d="M310 341V375"/><path class="e" d="M560 303H690"/><path class="e" d="M980 221V255"/><path class="e" d="M980 341V375"/><path class="e" d="M980 477V525"/>
+  <path class="r" d="M1260 573C1300 573 1300 303 1270 303"/>
+  <path class="r" d="M700 573C630 573 630 423 570 423"/>
+  <text x="660" y="652" text-anchor="middle" class="s">AllocateWarpGroups fixes physical start IDs and register budgets before ConvertWarpSpecializeToLLVM emits this control protocol.</text>
+</svg>

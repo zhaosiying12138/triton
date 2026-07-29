@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="600" viewBox="0 0 1320 600" role="img" aria-labelledby="title desc">
+  <title id="title">ARef one-slot channel and lowering</title>
+  <desc id="desc">Producer and consumer exchange ownership of shared or tensor memory using empty and full states.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#081522"/><stop offset="1" stop-color="#15253b"/></linearGradient>
+    <marker id="a" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto"><path d="M0 0L11 5.5L0 11Z" fill="#8ad8ff"/></marker>
+    <style>.h{font:700 28px system-ui;fill:#f7fbff}.t{font:700 20px system-ui;fill:#fff}.s{font:500 15px system-ui;fill:#c6d7e7}.m{font:600 14px ui-monospace;fill:#b9efff}.b{stroke-width:2;rx:18}.e{fill:none;stroke:#8ad8ff;stroke-width:3;marker-end:url(#a)}</style>
+  </defs>
+  <rect width="1320" height="600" rx="28" fill="url(#bg)"/>
+  <text x="52" y="58" class="h">ARef is an ownership channel, not an SSA-value teleport</text>
+  <rect class="b" x="55" y="165" width="240" height="220" fill="#173b3a" stroke="#55d6be"/>
+  <text x="175" y="212" text-anchor="middle" class="t">Producer partition</text>
+  <text x="175" y="255" text-anchor="middle" class="m">wait(empty[slot])</text>
+  <text x="175" y="290" text-anchor="middle" class="m">write payload</text>
+  <text x="175" y="325" text-anchor="middle" class="m">put → full[slot]</text>
+  <text x="175" y="360" text-anchor="middle" class="s">publishes ownership</text>
+  <rect class="b" x="420" y="125" width="480" height="300" fill="#342d52" stroke="#b29cff"/>
+  <text x="660" y="170" text-anchor="middle" class="t">ARef slot i = iteration mod depth</text>
+  <rect class="b" x="470" y="210" width="180" height="130" fill="#142b45" stroke="#5cbdf0"/>
+  <text x="560" y="248" text-anchor="middle" class="t">payload storage</text>
+  <text x="560" y="282" text-anchor="middle" class="s">SMEM buffer</text>
+  <text x="560" y="311" text-anchor="middle" class="s">or TMEM token/owner</text>
+  <rect class="b" x="682" y="210" width="168" height="54" fill="#163b32" stroke="#55d6be"/>
+  <text x="766" y="244" text-anchor="middle" class="m">empty barrier</text>
+  <rect class="b" x="682" y="286" width="168" height="54" fill="#472a40" stroke="#f083c9"/>
+  <text x="766" y="320" text-anchor="middle" class="m">full barrier</text>
+  <text x="660" y="385" text-anchor="middle" class="s">phase = floor(iteration / depth) mod 2</text>
+  <rect class="b" x="1025" y="165" width="240" height="220" fill="#50321d" stroke="#ffb35c"/>
+  <text x="1145" y="212" text-anchor="middle" class="t">Consumer partition</text>
+  <text x="1145" y="255" text-anchor="middle" class="m">get ← wait(full[slot])</text>
+  <text x="1145" y="290" text-anchor="middle" class="m">borrow / read payload</text>
+  <text x="1145" y="325" text-anchor="middle" class="m">consumed → empty[slot]</text>
+  <text x="1145" y="360" text-anchor="middle" class="s">returns reuse credit</text>
+  <path class="e" d="M295 248H410"/><path class="e" d="M900 248H1015"/><path class="e" d="M1015 335C955 500 345 500 295 335"/>
+  <text x="658" y="482" text-anchor="middle" class="m">InsertAref / InsertTmemAref → LowerAref</text>
+  <text x="658" y="520" text-anchor="middle" class="s">The IR records cross-partition dependency first; allocation, mbarrier protocol and fences are materialized later.</text>
+  <text x="658" y="552" text-anchor="middle" class="s">SMEM path transfers a buffered payload. TMEM path coordinates asynchronous producer/reader ownership.</text>
+</svg>

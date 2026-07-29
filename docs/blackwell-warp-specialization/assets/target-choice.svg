@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 500" role="img" aria-labelledby="title desc">
+  <title id="title">SM103 与 SM120 实验路径取舍</title>
+  <desc id="desc">SM103 走 TMA、TCGen05 与 TMEM 的目标路径并做编译态证明；SM120 使用 consumer Blackwell MMA v2 路径，运行结果不能验证 SM103 warp specialization。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07111f"/>
+      <stop offset="1" stop-color="#11243a"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7dd3fc"/>
+    </marker>
+    <style>
+      .title{font:700 30px system-ui,-apple-system,"Noto Sans CJK SC",sans-serif;fill:#f8fafc}
+      .head{font:700 24px system-ui,-apple-system,"Noto Sans CJK SC",sans-serif;fill:#e2e8f0}
+      .body{font:500 18px system-ui,-apple-system,"Noto Sans CJK SC",sans-serif;fill:#cbd5e1}
+      .code{font:600 17px ui-monospace,SFMono-Regular,Consolas,monospace;fill:#bae6fd}
+      .note{font:600 17px system-ui,-apple-system,"Noto Sans CJK SC",sans-serif;fill:#fcd34d}
+    </style>
+  </defs>
+  <rect width="1200" height="500" rx="28" fill="url(#bg)"/>
+  <text x="52" y="62" class="title">同为 Blackwell 名称，不等于同一条 WS 目标路径</text>
+
+  <rect x="50" y="100" width="525" height="320" rx="22" fill="#0f2d29" stroke="#34d399" stroke-width="2"/>
+  <text x="82" y="144" class="head">SM103：本文选择</text>
+  <text x="82" y="188" class="code">descriptor / TMA</text>
+  <path d="M 260 181 H 340" stroke="#7dd3fc" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="365" y="188" class="code">TCGen05</text>
+  <path d="M 170 216 V 253" stroke="#7dd3fc" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M 445 216 V 253" stroke="#7dd3fc" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="82" y="286" class="code">ARef + mbarrier</text>
+  <text x="365" y="286" class="code">TMEM</text>
+  <text x="82" y="326" class="body">冻结 SM103 pipeline，生成 TTGIR / LLVM</text>
+  <text x="82" y="358" class="body">以及 PTX / cubin / SASS</text>
+  <text x="82" y="400" class="note">结构与 assembler acceptance；无硅上性能结论</text>
+
+  <rect x="625" y="100" width="525" height="320" rx="22" fill="#30251a" stroke="#f59e0b" stroke-width="2"/>
+  <text x="657" y="144" class="head">SM120：本机有卡，但不拿来替代</text>
+  <text x="657" y="188" class="code">consumer Blackwell</text>
+  <path d="M 865 181 H 940" stroke="#7dd3fc" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="965" y="188" class="code">MMA v2</text>
+  <text x="657" y="244" class="body">冻结源码排除 MMAv5/TCGen05 中心路径</text>
+  <text x="657" y="286" class="body">12.x 也被 cluster feature gate 排除</text>
+  <text x="657" y="334" class="body">即使可运行，测到的也是另一套指令与资源协议</text>
+  <text x="657" y="378" class="note">结论：不能用其 timeline/速度证明 SM103 WS</text>
+
+  <path d="M 575 447 H 625" stroke="#64748b" stroke-width="2" stroke-dasharray="7 7"/>
+  <text x="315" y="468" class="body">目标一致性优先于“有一张图看起来更完整”</text>
+</svg>

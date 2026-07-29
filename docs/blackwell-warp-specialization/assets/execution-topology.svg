@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="660" viewBox="0 0 1400 660" role="img" aria-labelledby="title desc">
+  <title id="title">SM103 warp-specialized execution topology</title>
+  <desc id="desc">The causal path from global memory through TMA, shared memory, TCGen05, tensor memory, epilogue and global store.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07131f"/><stop offset="1" stop-color="#101b30"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-opacity=".28"/></filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0 0L12 6L0 12Z" fill="#8ad8ff"/></marker>
+    <style>
+      .h{font:700 28px system-ui,sans-serif;fill:#f6fbff}.sub{font:500 16px system-ui,sans-serif;fill:#a9bed3}
+      .t{font:700 19px system-ui,sans-serif;fill:#f8fbff}.s{font:500 14px system-ui,sans-serif;fill:#c5d6e6}
+      .tiny{font:600 13px ui-monospace,monospace;fill:#aeeaff}.box{stroke-width:2;rx:18;filter:url(#shadow)}
+      .edge{fill:none;stroke:#8ad8ff;stroke-width:3;marker-end:url(#arrow)}.sync{fill:#0b2330;stroke:#55d6be;stroke-width:1.5;rx:12}
+    </style>
+  </defs>
+  <rect width="1400" height="660" rx="28" fill="url(#bg)"/>
+  <text x="54" y="60" class="h">SM103: the execution structure the compiler is trying to construct</text>
+  <text x="54" y="92" class="sub">Logical partitions are scheduling roles; physical warp-group allocation is decided later.</text>
+
+  <rect class="box" x="48" y="170" width="190" height="185" fill="#102d46" stroke="#3fa7d6"/>
+  <text x="143" y="210" text-anchor="middle" class="t">Global memory</text>
+  <text x="143" y="246" text-anchor="middle" class="s">A / B tiles</text>
+  <text x="143" y="276" text-anchor="middle" class="s">tensor descriptors</text>
+  <text x="143" y="322" text-anchor="middle" class="tiny">descriptor_load</text>
+
+  <rect class="box" x="286" y="145" width="205" height="235" fill="#173b3a" stroke="#55d6be"/>
+  <text x="388" y="190" text-anchor="middle" class="t">TMA producer</text>
+  <text x="388" y="226" text-anchor="middle" class="s">low-register worker role</text>
+  <text x="388" y="256" text-anchor="middle" class="s">one elected thread issues</text>
+  <text x="388" y="286" text-anchor="middle" class="s">GMEM → SMEM copy</text>
+  <text x="388" y="334" text-anchor="middle" class="tiny">async_tma_copy</text>
+
+  <rect class="box" x="540" y="145" width="235" height="235" fill="#352d53" stroke="#b29cff"/>
+  <text x="658" y="190" text-anchor="middle" class="t">Staged shared memory</text>
+  <text x="658" y="226" text-anchor="middle" class="s">descriptor multibuffering</text>
+  <text x="658" y="256" text-anchor="middle" class="s">payload + empty/full state</text>
+  <text x="658" y="286" text-anchor="middle" class="s">phase / credit protocol</text>
+  <text x="658" y="334" text-anchor="middle" class="tiny">SMEM + mbarrier</text>
+
+  <rect class="box" x="824" y="145" width="205" height="235" fill="#50321d" stroke="#ffb35c"/>
+  <text x="927" y="190" text-anchor="middle" class="t">TCGen05 issuer</text>
+  <text x="927" y="226" text-anchor="middle" class="s">logical 1-warp role</text>
+  <text x="927" y="256" text-anchor="middle" class="s">one elected thread issues</text>
+  <text x="927" y="286" text-anchor="middle" class="s">asynchronous MMA</text>
+  <text x="927" y="334" text-anchor="middle" class="tiny">tcgen05.mma</text>
+
+  <rect class="box" x="1078" y="145" width="270" height="235" fill="#3d2340" stroke="#f083c9"/>
+  <text x="1213" y="190" text-anchor="middle" class="t">Tensor memory</text>
+  <text x="1213" y="226" text-anchor="middle" class="s">accumulator lives in TMEM</text>
+  <text x="1213" y="256" text-anchor="middle" class="s">often ping-pong buffered</text>
+  <text x="1213" y="286" text-anchor="middle" class="s">MMA producer ↔ reader owner</text>
+  <text x="1213" y="334" text-anchor="middle" class="tiny">commit · mbarrier wait</text>
+
+  <path class="edge" d="M238 262H276"/><path class="edge" d="M491 262H530"/><path class="edge" d="M775 262H814"/><path class="edge" d="M1029 262H1068"/>
+
+  <rect class="sync" x="452" y="411" width="278" height="58"/><text x="591" y="436" text-anchor="middle" class="tiny">TMA completion mbarrier</text><text x="591" y="457" text-anchor="middle" class="s">readiness, phase and transaction bytes</text>
+  <rect class="sync" x="773" y="411" width="302" height="58"/><text x="924" y="436" text-anchor="middle" class="tiny">async-proxy visibility fence</text><text x="924" y="457" text-anchor="middle" class="s">not interchangeable with mbarrier</text>
+  <rect class="sync" x="1010" y="495" width="338" height="58"/><text x="1179" y="520" text-anchor="middle" class="tiny">ISA: commit · wait · after-sync fence</text><text x="1179" y="541" text-anchor="middle" class="s">frozen PTX omits the fence: qualification gap</text>
+
+  <rect class="box" x="755" y="540" width="240" height="76" fill="#173247" stroke="#67c8ff"/>
+  <text x="875" y="570" text-anchor="middle" class="t">TMEM reader / epilogue</text>
+  <text x="875" y="596" text-anchor="middle" class="s">typically a physical 4-warp group</text>
+  <rect class="box" x="430" y="540" width="230" height="76" fill="#183932" stroke="#60d8aa"/>
+  <text x="545" y="570" text-anchor="middle" class="t">Global store</text>
+  <text x="545" y="596" text-anchor="middle" class="s">descriptor store or pointer store</text>
+  <path class="edge" d="M1195 380C1195 500 1030 578 1005 578"/><path class="edge" d="M745 578H670"/>
+</svg>
