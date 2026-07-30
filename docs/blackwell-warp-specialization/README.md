@@ -14,6 +14,8 @@ warp_specialize=True)` 出发，逐层解释：
 - 自动 WS 何时有资格发生，何时只是一个未兑现的请求；
 - TCGen05 alloc/MMA/commit/fence/ld-st-wait 的因果链，以及本文涉及的
   proxy、tensormap、mbarrier-init 与 TCGen05 fences 为什么互不替代；
+- NVWS dialect 的全部类型、属性、接口和 16 个 op，及其 ARef/warp-group 两个
+  transient lowering epoch；
 - `PartitionScheduling` 如何建立并合并 dataflow partitions；
 - shared ARef、TMEM ARef 如何把跨 partition SSA edge 变成所有权协议；
 - loop cloning、pipeline、warp-group allocation 和动态寄存器预算如何衔接；
@@ -23,11 +25,11 @@ warp_specialize=True)` 出发，逐层解释：
 
 ## 建议阅读路径
 
-1. 先读正文第 1–4 章，建立最终执行拓扑、同步分类和显式 WS 语义。
-2. 第 5–11 章跟随 canonical TMA GEMM 走完 AutomaticWS 的全部 subpasses。
-3. 第 12–13 章把逻辑 partition 落到物理 warp、寄存器和 LLVM 控制流。
+1. 先读正文第 1–5 章，建立指令因果、NVWS 瞬时 IR、同步分类和显式 WS 语义。
+2. 第 6–12 章跟随 canonical TMA GEMM 走完 AutomaticWS 的全部 subpasses。
+3. 第 13–14 章把逻辑 partition 落到物理 warp、寄存器和 LLVM 控制流。
 4. 最后用边界 cases 和成熟度矩阵判断真实 workload 是否落在当前支持中心。
-5. 按 [lab/README.md](lab/README.md) 重建 SM103 编译证据；不能从这些结果推导运行时性能。
+5. 按 [lab/README.md](lab/README.md) 重建 SM103 编译证据；待有合适设备后再按 [lab/TEST_PLAN.md](lab/TEST_PLAN.md) 的未执行清单补运行资格化，不能从当前结果推导性能。
 
 ## 目录
 
@@ -38,11 +40,13 @@ blackwell-warp-specialization/
 ├── assets/                    # 原始插图与 HTML 样式/交互源
 ├── lab/                       # 不加载、不启动 cubin 的 SM103 编译实验
 ├── evidence/                  # 经校验后才允许发布的精选编译证据
-├── research/                  # 来源账本、源码地图、case 矩阵与检索记录
+├── research/                  # 来源账本、源码地图、case 矩阵、GitHub 讨论审计与检索记录
 └── tools/                     # 离线 HTML 构建器
 ```
 
-`research/` 是可审计的研究材料，不是正文阅读前置条件。正文只在最后一章集中列外部资料，
+`research/github-discussion-audit.md` 记录 GitHub issue/PR/comment/review 的检索面、
+纳入/排除规则和无法绝对全量化的边界；其余 `research/` 文件保存 source ledger、
+machine-readable source map 和 case matrix。它们不是正文阅读前置条件。正文只在最后一章集中列外部资料，
 源码路径和符号则就近出现，方便在当前 checkout 中直接跳转。
 
 ## 构建离线 HTML

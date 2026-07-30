@@ -96,7 +96,7 @@
       }
     },
     "tmem": {
-      "description": "Tensor Memory allocation, register transfer, and deallocation",
+      "description": "Tensor Memory allocation/permit lifecycle, asynchronous register-load completion, and deallocation",
       "proof_stages": ["ptx"],
       "required_match": "all",
       "patterns": {
@@ -104,11 +104,13 @@
           "ttng\\.tmem_(?:alloc|load|store|subslice)|tensor_memory"
         ],
         "llir": [
-          "tcgen05\\.(?:alloc|dealloc|ld|st|cp)"
+          "tcgen05\\.(?:alloc|relinquish_alloc_permit|dealloc|ld|st|cp|wait)"
         ],
       "ptx": [
         "tcgen05\\.alloc",
-        "tcgen05\\.(?:ld|st)",
+        "tcgen05\\.relinquish_alloc_permit",
+        "tcgen05\\.ld",
+        "tcgen05\\.wait::ld",
         "tcgen05\\.dealloc"
         ],
         "trace": [

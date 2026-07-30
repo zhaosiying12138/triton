@@ -5,6 +5,9 @@ It is deliberately **compile-only**: it may ask `ptxas` to assemble PTX into a
 cubin and may ask `cuobjdump`/`nvdisasm` to decode that cubin, but no command in
 this directory loads or launches a cubin.
 
+Completed compiler checks and the still-unrun exact-SM103 device qualification
+checklist are kept in [TEST_PLAN.md](TEST_PLAN.md).
+
 The target is locked in the CLI, manifest, source fixtures, compiler metadata,
 and final PTX to `GPUTarget("cuda", 103, 32)` (`cuda:103:32`). Every compile
 entry point repeats the source checks. Compilation uses in-tree backends only
@@ -63,7 +66,7 @@ After the native build finishes, run the focused compiler regression suite:
 ./run_focused_lit.sh
 ```
 
-The script runs 21 checked-in MLIR files (29 `RUN:` lines) with 24 lit workers
+The script runs 31 checked-in MLIR files (43 `RUN:` lines) with 24 lit workers
 by default. It uses the venv's lit 18 runner together with `triton-opt`,
 `FileCheck`, and `not` from the pinned source builds. The LLVM checkout's own
 lit 23 runner is intentionally not used: this frozen Triton test configuration
@@ -150,11 +153,14 @@ SM103 target and produced the asserted IR/PTX structure. They do **not** prove
 runtime correctness, deadlock freedom on silicon, occupancy, or performance.
 Those claims are outside this lab's scope.
 
-In particular, the `tcgen05` family currently asserts MMA issue plus completion
-commit, not the complete PTX ISA cross-thread ordering sequence. The recorded
-artifacts omit `tcgen05.fence::after_thread_sync` before the cross-role TMEM
-load; that known gap is documented in `../evidence/README.md` and must not be
-hidden by the otherwise successful validation result.
+In particular, the `tcgen05` family asserts MMA issue plus completion commit,
+while `tmem` separately asserts the co-presence of allocation, allocation-permit
+release, `tcgen05.ld` plus `tcgen05.wait::ld`, and deallocation. These line-wise
+patterns do not by themselves prove dynamic instruction order.
+Neither family asserts a complete PTX ISA cross-thread ordering sequence. The
+recorded artifacts omit `tcgen05.fence::after_thread_sync` before the cross-role
+TMEM load; that known gap is documented in `../evidence/README.md` and must not
+be hidden by the otherwise successful validation result.
 
 ## Adding a case
 

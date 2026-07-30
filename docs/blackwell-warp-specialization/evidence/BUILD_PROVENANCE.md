@@ -62,7 +62,7 @@ complete runner record is [raw/focused-lit.log](raw/focused-lit.log).
 
 | Check | Result |
 |---|---|
-| Focused compiler suite | PASS: 21/21 lit files, representing 29 `RUN:` lines |
+| Focused compiler suite | PASS: 31/31 lit files, representing 43 `RUN:` lines; full `test/NVWS` included |
 | `tma_matmul`, WS off | PASS: compile, full pass trace, disassembly, validation |
 | `tma_matmul`, WS on | PASS: compile, full pass trace, disassembly, validation |
 | `ws_skeleton`, WS off | PASS: compile, full pass trace, disassembly, validation |

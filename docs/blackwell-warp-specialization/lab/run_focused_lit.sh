@@ -49,8 +49,14 @@ LIT_VERSION=$("${LIT_BIN}" --version)
 # the generated lit.site.cfg.py can map them back to the frozen source tree.
 WS_LIT_TESTS=(
   test/TritonGPU/automatic-warp-specialization.mlir
+  test/TritonGPU/pipeline-assign-latencies.mlir
+  test/TritonGPU/pipeline-schedule-loop.mlir
+  test/TritonGPU/pipeline-lower-loop.mlir
+  test/TritonGPU/loop-pipeline-blackwell.mlir
   test/TritonGPU/partition-scheduling.mlir
   test/TritonGPU/partition-loops.mlir
+  test/NVWS/ops.mlir
+  test/NVWS/assign_stage_phase.mlir
   test/NVWS/lower_warp_group.mlir
   test/NVWS/insert_aref.mlir
   test/NVWS/aref-tmem-insertion.mlir
@@ -66,8 +72,12 @@ WS_LIT_TESTS=(
   test/TritonNvidiaGPU/tmem_barrier_insertion.mlir
   test/Conversion/tritonnvidiagpu_to_llvm.mlir
   test/TritonGPU/partition-verifier-locality.mlir
+  test/TritonGPU/invalid.mlir
   test/NVWS/invalid.mlir
   test/TritonGPU/proxy_fence_insertion.mlir
+  test/TritonGPU/fence-inserstion.mlir
+  test/TritonGPU/consan.mlir
+  test/TritonGPU/consan-capture-reservation.mlir
   test/TritonNvidiaGPU/test_tensor_memory_allocation.mlir
 )
 

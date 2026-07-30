@@ -12,7 +12,8 @@ The checked-in records are:
   configuration, the resolved LLVM target-set issue, tool versions, and the
   validation boundary;
 - [raw/focused-lit.log](raw/focused-lit.log): the complete focused lit output,
-  with 21/21 files passing and 29 `RUN:` lines represented;
+  with 31/31 files passing and 43 `RUN:` lines represented; the selection now
+  includes every file in `test/NVWS`;
 - [sm103-compile-only/evidence.md](sm103-compile-only/evidence.md): the reviewed
   four-variant result table, with matching JSON and standalone HTML beside it.
 

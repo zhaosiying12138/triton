@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "snapshot": {
     "repository": "triton-lang/triton",
     "commit": "bf64a5db1bc8aab0fd4f0076e60f6c367852e47d",
@@ -21,6 +21,7 @@
     },
     "assertion": {
       "required": "Must be checked and is supported by frozen source/test evidence.",
+      "required-composed": "Must be established by an explicitly named composition of frozen source and adjacent focused fixtures; it is not claimed as one fixture's direct FileCheck.",
       "forbidden": "Must be absent for this case.",
       "advisory": "Useful observation only; exact spelling/count is toolchain-sensitive or not covered by the fixture.",
       "known_gap": "Normative structure is expected from the external ISA contract but is absent from the frozen implementation, tests, or artifact; this blocks the corresponding qualification claim without making the compile record itself invalid.",
@@ -88,7 +89,7 @@
         ]
       },
       "evidence_vector_note": "This case directly proves the execution mechanism and intentionally says nothing about automatic discovery or runtime behavior.",
-      "limitations": ["No runtime overlap or efficiency conclusion is permitted."]
+      "limitations": ["No runtime overlap or efficiency conclusion is permitted.", "Worker warp_return has no operands, so only the default region can define WS op SSA results; worker payloads require storage/ownership protocols.", "An explicit ttg.warp_specialize cannot be nested under another explicit WS op, although sequential WS sites and an ordinary outer loop containing one WS remain legal."]
     },
     {
       "id": "explicit_tmem_micro_ir",
@@ -134,6 +135,55 @@
       },
       "evidence_vector_note": "TMEM and explicit-WS lowering have direct structural evidence; automatic TMEM ownership discovery and runtime remain separate unfilled axes.",
       "limitations": ["The micro-IR bypasses automatic partition discovery."]
+    },
+    {
+      "id": "nvws_dialect_lifecycle",
+      "title": "NVWS dialect lifecycle: ARef epoch, erase boundary, warp-group epoch, final TTGIR",
+      "category": "transient-dialect micro-IR",
+      "objective": "Prove that all 16 NVWS operations belong to classified transient families and that the current AutomaticWS path consumes its ARef/descriptor and warp-group families at two distinct boundaries before LLVM lowering.",
+      "evidence_vector": {
+        "frontend_or_explicit_input": "explicit NVWS and partitioned TTGIR fixtures",
+        "automatic_discovery": "not the focus; pass order is read from the AutomaticWS composite",
+        "focused_transform": "direct parser/verifier, stage-phase, LowerAref, PartitionLoops, and LowerWarpGroup fixtures",
+        "composed_pipeline": "source-backed two-epoch composition plus local full-trace observations; the composite CLEAN prefix checks partition metadata, not nvws.* residue",
+        "target_lowering": "final ttg.warp_specialize and its LLVM conversion are covered after NVWS disappears",
+        "runtime_qualification": "not applicable to transient-IR semantics"
+      },
+      "evidence_kind": "fact",
+      "compile": {"target": "sm103", "runtime": false},
+      "source_fixtures": [
+        {"path": "test/NVWS/ops.mlir", "symbol": "covered functions including warp_group_nothing", "role": "Positive syntax samples for part of ARef, warp-group, and legacy token families, including zero-region/no-result warp-group; the complete 16-op inventory comes from ODS."},
+        {"path": "test/NVWS/invalid.mlir", "symbol": "ARef verifier negatives", "role": "Direct but partial verifier boundary; it does not cover non-empty/unique ownership, exit pairing, ArefBuffer result/token contracts, or the full warp-group terminator domain."},
+        {"path": "test/NVWS/assign_stage_phase.mlir", "symbol": "all functions", "role": "Stage and phase assignment."},
+        {"path": "test/NVWS/lower_aref.mlir", "symbol": "warp_specialize_tma_matmul and variants", "role": "ARef and descriptor elimination."},
+        {"path": "test/NVWS/lower_warp_group.mlir", "symbol": "all functions", "role": "Warp-group elimination into final TTGIR."},
+        {"path": "test/Conversion/warp_specialize_to_llvm.mlir", "symbol": "all functions", "role": "Downstream final-WS control-flow lowering."}
+      ],
+      "pipeline_checkpoints": [
+        "InsertAref/InsertTmemAref may create nvws.aref.* and nvws.descriptor_* while computation is still one partition-annotated structured loop.",
+        "LowerAref must eliminate the ARef/descriptor families and replace them with TTG/TTNG buffers, mbarriers, TMA, fences, and completion operations.",
+        "PartitionLoops runs only afterwards and may create nvws.warp_group/yield/return.",
+        "LowerWarpGroup must eliminate that family and produce ttg.warp_specialize/warp_yield/warp_return before target lowering."
+      ],
+      "expected": {
+        "passes": [
+          {"pattern": "insert_aref -> insert_tmem_aref -> lower_aref -> partition_loops -> lower_warp_group", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ir": [
+          {"pattern": "nvws.aref.* plus nvws.descriptor_* before LowerAref", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "no nvws.aref.* or nvws.descriptor_* after LowerAref", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "nvws.warp_group only after PartitionLoops and no nvws.warp_group after LowerWarpGroup", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "ttg.warp_specialize family at the final TTGIR boundary", "assertion": "required", "evidence_kind": "fact"}
+        ],
+        "ptx": [
+          {"pattern": "not applicable: NVWS has no direct PTX/LLVM converter", "assertion": "not_applicable", "evidence_kind": "fact"}
+        ],
+        "sass": [
+          {"pattern": "not applicable to the transient-dialect case", "assertion": "not_applicable", "evidence_kind": "fact"}
+        ]
+      },
+      "evidence_vector_note": "The case proves compiler-IR lifecycle and erase boundaries from source, local pass traces, and focused lowering checks, not from a composite CLEAN-NOT nvws.* assertion; it does not prove hardware execution or runtime behavior.",
+      "limitations": ["The passes rely on internal pipeline invariants and selected assert/unreachable paths rather than a dialect-wide ConversionTarget proof.", "ArefCreate does not verify non-empty or unique ownership; exit completion arrays/token pairing and ArefBuffer token provenance, result arity, and precise result types are protocol invariants, with view count checked only by a lowering assert.", "Zero-region/no-result warp_group passes verification although LowerWarpGroup indexes the first group; positive/power-of-two numWarps, yield/result type equality, and terminator placement outside a result-bearing first region are not fully checked. Worker lowering discards the input terminator and creates warp_return.", "The composite automatic-warp-specialization CLEAN prefix checks ttg.partition metadata and the internal tag, not nvws.* residue; the full-trace observation therefore remains a separate evidence object.", "The legacy !nvws.token family is classified separately and is not exercised by current AutomaticWS.", "No direct negative matrix exists for all warp_group verifier and AsyncOp combinations."]
     },
     {
       "id": "ordinary_async_no_auto_ws",
@@ -199,6 +249,7 @@
       "pipeline_checkpoints": [
         "PartitionScheduling sees eligible descriptor memory and TCGen05 MMA roots.",
         "InsertAref/LowerAref protocolize the TMA-produced shared tile.",
+        "AssignLatencies retains nonzero MMA self-latency because the ordinary tt.load operand remains in the compute role.",
         "Pipeline materializes the remaining ordinary async-copy stages after autoWS.",
         "OptimizePartitionWarps sizes the resulting workers."
       ],
@@ -208,7 +259,8 @@
         ],
         "ir": [
           {"pattern": "ttg.warp_specialize together with both async_tma_copy_global_to_local-like and ttg.async_copy_global_to_local-like operations", "assertion": "required", "evidence_kind": "fact"},
-          {"pattern": "ARef empty/full barrier protocol for the TMA operand", "assertion": "required", "evidence_kind": "fact"}
+          {"pattern": "ARef empty/full barrier protocol for the TMA operand", "assertion": "required", "evidence_kind": "fact"},
+          {"pattern": "ordinary-copy async_wait is checked directly; nonzero MMAv5 self-latency and its distinct completion wait_barrier are composed source-plus-adjacent-fixture evidence, not a FileCheck in the same mixed fixture", "assertion": "required-composed", "evidence_kind": "fact"}
         ],
         "ptx": [
           {"pattern": "cp.async.bulk.tensor...mbarrier for TMA plus the target form of ordinary async copy, TCGen05 MMA, and WS barriers/state", "assertion": "advisory", "evidence_kind": "inference"}
@@ -218,7 +270,7 @@
         ]
       },
       "evidence_vector_note": "Python-source and focused/full-pass evidence exist; same-target runtime overlap remains unmeasured.",
-      "limitations": ["Both-operands-ordinary is skipped/rejected as an autoWS Blackwell test shape."]
+      "limitations": ["Both-operands-ordinary is skipped/rejected as an autoWS Blackwell test shape.", "self_latency is a scheduling contract, not a hardware-cycle measurement; this fixture does not generalize to cross-partition ordinary cp.async payloads."]
     },
     {
       "id": "tma_auto_ws_gemm",
@@ -272,7 +324,7 @@
     },
     {
       "id": "persistent_tcgen05_gemm",
-      "title": "Nested persistent GEMM with TCGen05 and TMEM-clear hoisting",
+      "title": "Nested persistent GEMM with TCGen05 and TMEM-initialization hoisting",
       "category": "persistent automatic WS",
       "objective": "Trace the extra transformations required when one program persistently claims multiple output tiles.",
       "evidence_vector": {
@@ -288,7 +340,7 @@
       "source_fixtures": [
         {"path": "python/test/unit/language/test_warp_specialization.py", "symbol": "matmul_tma_persistent_ws_kernel/test_warp_specialize_tma_matmul_persistent", "role": "Persistent frontend/integration fixture."},
         {"path": "test/TritonGPU/partition-scheduling.mlir", "symbol": "matmul_nested_persistent_ws_kernel", "role": "Nested-loop partition structure."},
-        {"path": "test/NVWS/hoist_tmem_store.mlir", "symbol": "matmul_nested_persistent_ws_kernel", "role": "Safe TMEM zero-store/alloc hoisting."}
+        {"path": "test/NVWS/hoist_tmem_store.mlir", "symbol": "matmul_nested_persistent_ws_kernel", "role": "Canonical safe TMEM clear/alloc hoisting; the earlier fold can absorb any dominating initialization source."}
       ],
       "pipeline_checkpoints": [
         "FuseNestedLoops, LICM, accumulator-init optimization, and first TMEM hoist prepare the persistent nest.",
@@ -337,7 +389,7 @@
       "pipeline_checkpoints": [
         "InsertAref replaces raw cross-partition SSA with aref.create and put/get enter/exit.",
         "SCCP/CSE simplify the protocol.",
-        "LowerAref creates empty/full barriers and multibuffered shared storage.",
+        "LowerAref creates empty/full barriers; descriptor/TMA producer channels may expand to numStages, while generic cross-partition channels remain depth one.",
         "PartitionLoops can then clone partitions without unresolved SSA dependencies."
       ],
       "expected": {
@@ -347,7 +399,7 @@
         "ir": [
           {"pattern": "nvws.aref.create and matching put/get enter/exit after InsertAref", "assertion": "required", "evidence_kind": "fact"},
           {"pattern": "descriptor load converted to NVWS descriptor producer with transaction count", "assertion": "required", "evidence_kind": "fact"},
-          {"pattern": "empty/full barrier waits and arrives plus numStages-controlled buffers after LowerAref", "assertion": "required", "evidence_kind": "fact"}
+          {"pattern": "empty/full barrier waits and arrives; numStages-controlled buffers only for descriptor/TMA producer ARefs, with generic payload channels depth one", "assertion": "required", "evidence_kind": "fact"}
         ],
         "ptx": [
           {"pattern": "not applicable to InsertAref/LowerAref focused fixtures", "assertion": "not_applicable", "evidence_kind": "fact"}
@@ -383,7 +435,8 @@
       ],
       "pipeline_checkpoints": [
         "TmemAccessDag follows optional TMEM dependency/mod-ref token chains when present; TMEM alloc-with-source has an explicit no-token fallback edge.",
-        "InsertTmemAref detects producer/consumer ownership and asserts at most two distinct explicit partition IDs; an unpartitioned root owner is tracked separately.",
+        "InsertTmemAref exits before DAG construction when the function has no tt.warp_specialize loop marker and stores async operation kind separately per PartitionId in nested paths.",
+        "InsertTmemAref detects producer/consumer ownership and asserts at most two distinct explicit partition IDs; an unpartitioned root owner is tracked separately, but subsequent matching logic still assumes a two-owner ping-pong graph.",
         "LowerAref realizes barriers; TMemBarrierInsertion later handles physical overlap dependencies."
       ],
       "expected": {
@@ -404,7 +457,7 @@
         ]
       },
       "evidence_vector_note": "Focused ownership coverage is substantial, while frontend provenance, arbitrary owner graphs, and runtime are not established.",
-      "limitations": ["At most two distinct explicit partition IDs are accepted; an optional unpartitioned root owner is counted separately, so this is not equivalent to at most two total owners.", "ARef completion waits and TMemBarrierInsertion do not substitute for the missing ISA-canonical tcgen05.fence::after_thread_sync; runtime hand-off correctness remains unqualified.", "Scaled paths require dedicated cases and handling."]
+      "limitations": ["More than two explicit partition IDs assert. Root plus two explicit owners passes that one count assertion, but later code only finds one other owner and has no three-owner positive or negative proof.", "No-marker is a safe no-op, but a marked loop without serialized partitions and an already partitioned unsupported owner graph are separate states; the latter can still reach an assertion rather than a graceful fallback.", "ARef completion waits and TMemBarrierInsertion do not substitute for the missing ISA-canonical tcgen05.fence::after_thread_sync; runtime hand-off correctness remains unqualified.", "Scaled paths require dedicated single-depth scale handling."]
     },
     {
       "id": "register_allocation",
@@ -448,7 +501,7 @@
         ]
       },
       "evidence_vector_note": "Pipeline integration and lowering are directly tested; sizing remains a heuristic policy and runtime occupancy is unmeasured.",
-      "limitations": ["65536-register budget and 2x tensor estimate are compiler policy constants at this snapshot.", "Do not infer achieved occupancy from requested register counts alone."]
+      "limitations": ["65536-register budget and 2x tensor estimate are compiler policy constants at this snapshot.", "The allocator has a FIXME for four-warp-aligned TMEM worker start IDs but no TMEM-aware verifier/negative fixture; common automatic four-warp roles often align naturally, which is not a proof for explicit undersized layouts.", "Do not infer achieved occupancy from requested register counts alone."]
     },
     {
       "id": "scaled_blockscale",
@@ -477,7 +530,7 @@
       ],
       "pipeline_checkpoints": [
         "PartitionScheduling recognizes TCGen5MMAScaledOp and scale-producing loads.",
-        "InsertAref/InsertTmemAref protocolize scale tensors according to storage and ownership.",
+        "InsertAref/InsertTmemAref protocolize scale tensors according to storage and ownership; TensorMemoryScalesEncoding ARefs stay depth one and do not gain a leading ring dimension.",
         "LowerAref keeps scaled MMA asynchronous only when both scales satisfy pipelineability; otherwise synchronous semantics survive until SyncMMALowering.",
         "MMAv5 conversion constructs FP8/FP4 scale descriptors and emits block-scale TCGen05 variants."
       ],
@@ -527,7 +580,7 @@
         "Component A: conversion fixtures check cta_group::2 TCGen05/TMEM forms.",
         "Component B: ClusterBarrierAnalysis fixtures check cross-CTA synchronization and init synchronization.",
         "Component C: ClusterBarrierMbarAllocator fixtures reserve two 16-byte slots and record offsets/count.",
-        "Component D: InitializeWSClusterBarriers fixtures initialize both slots and modulo-4 slot/parity state for all warps.",
+        "Component D: InitializeWSClusterBarriers fixtures initialize both slots, synchronize before loading the shared counter, derive slot/parity from one snapshot, and synchronize again after the counter update.",
         "No fixture in this evidence bundle proves A through D compose from one SM103 Python/TTGIR input."
       ],
       "expected": {
@@ -538,7 +591,7 @@
         ],
         "ir": [
           {"pattern": "allocator fixtures: ttg.mbar_offset and ttg.ws_cluster_barrier_count allocation metadata", "assertion": "required", "evidence_kind": "fact"},
-          {"pattern": "WS cluster-lowering fixtures: two cluster-shared mbarrier slots, counter, low-bit slot selection, high-bit parity selection, and all-warp cluster synchronization", "assertion": "required", "evidence_kind": "fact"}
+          {"pattern": "WS cluster-lowering fixtures: two cluster-shared mbarrier slots, CTA barrier before counter load, low-bit slot and high-bit parity from one snapshot, CTA barrier after counter update, and all-warp cluster synchronization", "assertion": "required", "evidence_kind": "fact"}
         ],
         "ptx": [
           {"pattern": "two-CTA conversion fixture: tcgen05.mma.cta_group::2 and/or tcgen05.cp cta_group::2", "assertion": "required", "evidence_kind": "fact"},
@@ -647,6 +700,7 @@
   "deferred_runtime_work": {
     "reason": "No SM103 Blackwell device is available in the current environment and the user requested disruptive runtime setup be deferred.",
     "record_only": [
+      "Resolve or obtain an authoritative disposition for the missing tcgen05.fence::after_thread_sync before treating the cross-role MMA-to-TMEM-load runtime path as qualified.",
       "Run numerical correctness against a non-WS reference for GEMM, persistent GEMM, attention, and grouped GEMM.",
       "Compare WS on/off latency distributions after controlling num_warps, num_stages, input shape, clock state, and warmup.",
       "Collect achieved occupancy, registers/thread, shared memory, active warps, tensor-pipe utilization, TMA throughput, barrier stalls, scoreboard stalls, and eligible-warps-per-cycle.",

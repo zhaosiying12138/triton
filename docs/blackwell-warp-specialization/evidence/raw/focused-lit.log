@@ -1,6 +1,6 @@
 Triton snapshot: bf64a5db1bc8aab0fd4f0076e60f6c367852e47d
 Triton checkout: /home/zhaosiying/codebase/triton
-Triton HEAD: 987c4ab682cb36f92a04ceeb77bc4b94029570d2
+Triton HEAD: 1ddb1ce178bdc3ec67d9d1b180d040f2a71e0686
 Triton build: /home/zhaosiying/builds/triton-ws-bf64a5db/triton-build
 LLVM build: /home/zhaosiying/builds/triton-ws-bf64a5db/llvm-build-gcc15
 lit: /home/zhaosiying/builds/triton-ws-bf64a5db/venv/bin/lit (lit 18.1.8)
@@ -11,69 +11,80 @@ LLVM (http://llvm.org/):
   Optimized build with assertions.
 not: /home/zhaosiying/builds/triton-ws-bf64a5db/llvm-build-gcc15/bin/not
 workers: 24
-test files: 21
+test files: 31
 
 lit: /home/zhaosiying/builds/triton-ws-bf64a5db/venv/lib/python3.14/site-packages/lit/main.py:72: note: The test suite configuration requested an individual test timeout of 0 seconds but a timeout of 300 seconds was requested on the command line. Forcing timeout to be 300 seconds.
--- Testing: 21 tests, 21 workers --
+-- Testing: 31 tests, 24 workers --
 Slowest Tests:
 --------------------------------------------------------------------------
-0.61s: TRITON :: Conversion/tritonnvidiagpu_to_llvm.mlir
-0.37s: TRITON :: Conversion/tritongpu_to_llvm_blackwell.mlir
-0.25s: TRITON :: TritonGPU/automatic-warp-specialization.mlir
-0.10s: TRITON :: Conversion/warp_specialize_to_llvm.mlir
-0.06s: TRITON :: NVWS/aref-tmem-insertion.mlir
-0.06s: TRITON :: NVWS/lower_aref.mlir
-0.05s: TRITON :: TritonNvidiaGPU/test_tensor_memory_allocation.mlir
-0.05s: TRITON :: TritonNvidiaGPU/membar-cluster.mlir
-0.04s: TRITON :: TritonGPU/partition-scheduling.mlir
-0.04s: TRITON :: NVWS/insert_aref.mlir
-0.04s: TRITON :: Conversion/allocate_warp_groups.mlir
-0.04s: TRITON :: TritonGPU/optimize-partition-warps.mlir
-0.03s: TRITON :: TritonNvidiaGPU/tmem_barrier_insertion.mlir
-0.03s: TRITON :: TritonGPU/proxy_fence_insertion.mlir
-0.03s: TRITON :: TritonGPU/partition-verifier-locality.mlir
-0.03s: TRITON :: TritonGPU/partition-loops.mlir
-0.03s: TRITON :: NVWS/lower_warp_group.mlir
-0.02s: TRITON :: NVWS/invalid.mlir
-0.02s: TRITON :: Conversion/lower_tensor_memory_to_llvm.mlir
-0.02s: TRITON :: NVWS/hoist_tmem_store.mlir
+1.38s: TRITON :: TritonGPU/consan.mlir
+0.64s: TRITON :: Conversion/tritonnvidiagpu_to_llvm.mlir
+0.46s: TRITON :: Conversion/tritongpu_to_llvm_blackwell.mlir
+0.33s: TRITON :: TritonGPU/automatic-warp-specialization.mlir
+0.31s: TRITON :: TritonGPU/pipeline-lower-loop.mlir
+0.19s: TRITON :: Conversion/warp_specialize_to_llvm.mlir
+0.15s: TRITON :: NVWS/aref-tmem-insertion.mlir
+0.14s: TRITON :: TritonNvidiaGPU/test_tensor_memory_allocation.mlir
+0.14s: TRITON :: NVWS/lower_aref.mlir
+0.13s: TRITON :: TritonNvidiaGPU/membar-cluster.mlir
+0.13s: TRITON :: NVWS/insert_aref.mlir
+0.13s: TRITON :: TritonGPU/partition-scheduling.mlir
+0.12s: TRITON :: TritonGPU/optimize-partition-warps.mlir
+0.12s: TRITON :: TritonGPU/consan-capture-reservation.mlir
+0.12s: TRITON :: Conversion/allocate_warp_groups.mlir
+0.11s: TRITON :: TritonGPU/partition-verifier-locality.mlir
+0.11s: TRITON :: TritonGPU/proxy_fence_insertion.mlir
+0.11s: TRITON :: TritonGPU/partition-loops.mlir
+0.11s: TRITON :: TritonNvidiaGPU/tmem_barrier_insertion.mlir
+0.11s: TRITON :: TritonGPU/fence-inserstion.mlir
 
 Tests Times:
 --------------------------------------------------------------------------
 [    Range    ] :: [               Percentage               ] :: [Count]
 --------------------------------------------------------------------------
-[0.600s,0.650s) :: [*                                       ] :: [ 1/21]
-[0.550s,0.600s) :: [                                        ] :: [ 0/21]
-[0.500s,0.550s) :: [                                        ] :: [ 0/21]
-[0.450s,0.500s) :: [                                        ] :: [ 0/21]
-[0.400s,0.450s) :: [                                        ] :: [ 0/21]
-[0.350s,0.400s) :: [*                                       ] :: [ 1/21]
-[0.300s,0.350s) :: [                                        ] :: [ 0/21]
-[0.250s,0.300s) :: [*                                       ] :: [ 1/21]
-[0.200s,0.250s) :: [                                        ] :: [ 0/21]
-[0.150s,0.200s) :: [                                        ] :: [ 0/21]
-[0.100s,0.150s) :: [*                                       ] :: [ 1/21]
-[0.050s,0.100s) :: [*****                                   ] :: [ 3/21]
-[0.000s,0.050s) :: [**************************              ] :: [14/21]
+[1.30s,1.40s) :: [*                                       ] :: [ 1/31]
+[1.20s,1.30s) :: [                                        ] :: [ 0/31]
+[1.10s,1.20s) :: [                                        ] :: [ 0/31]
+[1.00s,1.10s) :: [                                        ] :: [ 0/31]
+[0.90s,1.00s) :: [                                        ] :: [ 0/31]
+[0.80s,0.90s) :: [                                        ] :: [ 0/31]
+[0.70s,0.80s) :: [                                        ] :: [ 0/31]
+[0.60s,0.70s) :: [*                                       ] :: [ 1/31]
+[0.50s,0.60s) :: [                                        ] :: [ 0/31]
+[0.40s,0.50s) :: [*                                       ] :: [ 1/31]
+[0.30s,0.40s) :: [**                                      ] :: [ 2/31]
+[0.20s,0.30s) :: [                                        ] :: [ 0/31]
+[0.10s,0.20s) :: [*************************               ] :: [20/31]
+[0.00s,0.10s) :: [*******                                 ] :: [ 6/31]
 --------------------------------------------------------------------------
 ********************
-Passed Tests (21):
+Passed Tests (31):
   TRITON :: Conversion/allocate_warp_groups.mlir
   TRITON :: Conversion/lower_tensor_memory_to_llvm.mlir
   TRITON :: Conversion/tritongpu_to_llvm_blackwell.mlir
   TRITON :: Conversion/tritonnvidiagpu_to_llvm.mlir
   TRITON :: Conversion/warp_specialize_to_llvm.mlir
   TRITON :: NVWS/aref-tmem-insertion.mlir
+  TRITON :: NVWS/assign_stage_phase.mlir
   TRITON :: NVWS/hoist_tmem_store.mlir
   TRITON :: NVWS/insert_aref.mlir
   TRITON :: NVWS/invalid.mlir
   TRITON :: NVWS/lower_aref.mlir
   TRITON :: NVWS/lower_warp_group.mlir
+  TRITON :: NVWS/ops.mlir
   TRITON :: TritonGPU/automatic-warp-specialization.mlir
+  TRITON :: TritonGPU/consan-capture-reservation.mlir
+  TRITON :: TritonGPU/consan.mlir
+  TRITON :: TritonGPU/fence-inserstion.mlir
+  TRITON :: TritonGPU/invalid.mlir
+  TRITON :: TritonGPU/loop-pipeline-blackwell.mlir
   TRITON :: TritonGPU/optimize-partition-warps.mlir
   TRITON :: TritonGPU/partition-loops.mlir
   TRITON :: TritonGPU/partition-scheduling.mlir
   TRITON :: TritonGPU/partition-verifier-locality.mlir
+  TRITON :: TritonGPU/pipeline-assign-latencies.mlir
+  TRITON :: TritonGPU/pipeline-lower-loop.mlir
+  TRITON :: TritonGPU/pipeline-schedule-loop.mlir
   TRITON :: TritonGPU/proxy_fence_insertion.mlir
   TRITON :: TritonNvidiaGPU/cluster-barrier-mbar-allocator.mlir
   TRITON :: TritonNvidiaGPU/membar-cluster.mlir
@@ -81,7 +92,7 @@ Passed Tests (21):
   TRITON :: TritonNvidiaGPU/tmem_barrier_insertion.mlir
 
 
-Testing Time: 0.70s
+Testing Time: 1.47s
 
-Total Discovered Tests: 21
-  Passed: 21 (100.00%)
+Total Discovered Tests: 31
+  Passed: 31 (100.00%)

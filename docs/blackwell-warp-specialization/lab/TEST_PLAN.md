@@ -26,11 +26,13 @@ inferred from these results.
 
 ## B. Focused compiler regression suite
 
-After the source-built LLVM and Triton tools are ready, run the 21-file focused
-lit suite. It covers AutomaticWS, partition scheduling and loop materialization,
-NVWS warp-group/ARef/TMEM-ARef lowering, warp-count optimization and allocation,
-LLVM conversion, proxy fences, cluster synchronization, and TMEM allocation and
-hazard barriers.
+After the source-built LLVM and Triton tools are ready, run the 31-file focused
+lit suite. It covers AutomaticWS, latency assignment/schedule/lower-loop,
+partition scheduling and loop materialization, explicit WS verifier negatives,
+the complete `test/NVWS` directory including dialect syntax and stage/phase
+assignment, warp-group/ARef/TMEM-ARef lowering, warp-count optimization and allocation,
+LLVM conversion, proxy fences, ConSan, cluster synchronization, and TMEM
+allocation and hazard barriers.
 
 ```bash
 ./run_focused_lit.sh
@@ -55,7 +57,7 @@ Completed log review:
 
 - [x] the provenance header names the frozen Triton snapshot and intended
   Triton/LLVM build directories;
-- [x] lit reports all 21 test files, representing 29 `RUN:` lines;
+- [x] lit reports all 31 test files, representing 43 `RUN:` lines;
 - [x] every test passes, including verifier-negative cases using LLVM `not`;
 - [x] no tool-resolution warning points outside the pinned build root;
 - [x] `../evidence/raw/focused-lit.log` contains no kernel-runtime or performance
@@ -120,6 +122,40 @@ python3 ws_study.py render --publish
 
 If committed evidence already differs, inspect the diff first. Use
 `--publish --force` only after deliberately accepting replacement.
+
+## D. Deferred exact-SM103 device qualification
+
+These items are deliberately recorded but **not run**. They require an actual
+SM103 device and a separate authorization window; an SM120 result cannot fill
+any box below.
+
+- [ ] Resolve or obtain an authoritative disposition for the missing
+  `tcgen05.fence::after_thread_sync` before treating cross-role MMA→TMEM-load
+  execution as qualified. Preserve the exact PTX/SASS sequence used by each
+  runtime binary.
+- [ ] Run WS on/off numerical comparisons against an independent reference for
+  canonical GEMM first, then persistent GEMM, attention, grouped GEMM, scaled
+  MMA, and the selected 2CTA cases. Include boundary shapes and repeated runs
+  capable of exposing intermittent ordering or deadlock failures.
+- [ ] Add watchdog-bounded stress runs for empty/short/full K loops, persistent
+  tile tails, descriptor changes, multi-consumer ARefs, accumulator ping-pong,
+  early worker retirement, and cluster exit/phase rollover.
+- [ ] Compare on/off latency distributions only after controlling input,
+  `num_warps`, `num_stages`, launch geometry, clocks, warmup, cache state,
+  toolchain, and compilation options. Report median and tail distributions,
+  never a single best timing.
+- [ ] Capture achieved occupancy, registers/thread, shared memory, active
+  warps, eligible warps/cycle, tensor-pipe utilization, TMA throughput,
+  barrier stalls, scoreboard stalls, and instruction issue by role. Correlate
+  counters with the already preserved pass trace and SASS rather than inferring
+  efficiency from static `requestedRegisters`.
+- [ ] Qualify 2CTA launch legality, cluster residency, peer progress and
+  slot/parity rollover separately from the one-CTA study. Do not merge its
+  numbers into the canonical GEMM conclusion.
+- [ ] Publish raw commands, device/driver/tool versions, clocks, environment,
+  hashes, failures and negative results alongside any chart. Until then the
+  prohibited claims remain: “WS is faster”, “WS improves occupancy”, “this
+  partition count is optimal”, or “another target proves SM103 behavior”.
 
 ## Blocker status
 
